@@ -1,4 +1,4 @@
-# Turntable Controls
+# Precision Turntable Control System
 
 A stepper motor-based turntable with closed-loop position control for robotics applications. Eventually this will sync with a UR5e arm at 125Hz.
 
@@ -11,6 +11,22 @@ A stepper motor-based turntable with closed-loop position control for robotics a
 - **Power**: 12V motor supply, 5V logic via buck converter
 - **Mechanical**: 4:1 reduction using HTD-5M timing belt and pulleys
 
+## Software Requirements
+
+### MATLAB Setup
+
+Follow the [MATLAB Arduino Hardware Setup Guide](https://www.mathworks.com/help/matlab/arduinoio.html?s_tid=CRUX_lftnav) to configure Arduino support.
+
+**Required MATLAB Toolboxes:**
+- System Identification Toolbox
+- MATLAB Support Package for Arduino Hardware
+
+### Arduino IDE 2.0 Libraries
+
+Install these libraries through the Arduino Library Manager:
+
+- **AS5600** by Rob Tillaart (magnetic encoder interface)
+
 ## Setup
 
 The firmware runs on ESP32 using Arduino IDE. We're using the Rob Tillaart AS5600 library for the encoder and basic GPIO control for the stepper (pins 25/26/27 for STEP/DIR/ENABLE).
@@ -20,7 +36,7 @@ MATLAB handles the control side - system identification, PID tuning, and real-ti
 ## Progress
 
 **Electrical Dynamics**  
-We isolated and controlled just the electrical side of the motor first. Did system ID on the current/voltage dynamics to understand the motor's electrical behavior independent of mechanical load. Tuned a PID controller for just the electrical dynamics of the system.
+We isolated and controlled just the electrical side of the motor first. Did system ID on the current/voltage dynamics to understand the motor's electrical behavior independent of mechanical load.
 
 **Full Mechanical System**  
 Ran system ID on the complete turntable system including the motor, timing belt reduction, encoder, and mechanical inertia. Got transfer functions that capture the real dynamics of the physical setup.
@@ -29,4 +45,4 @@ Ran system ID on the complete turntable system including the motor, timing belt 
 Since the end application uses trajectory messages (position + velocity commands), we identified the system using velocity as the input. This matches how it'll actually be used with the robot arm.
 
 **Controller Tuning**  
-Currently working on tuning PID controller. Using hardware-in-the-loop testing with MATLAB's System Identification Toolbox and the Arduino Hardware Toolbox to iterate on gains.
+Currently working on tuning a cascaded PID controller (inner velocity loop, outer position loop). Using hardware-in-the-loop testing with MATLAB's System Identification Toolbox to iterate on gains.
