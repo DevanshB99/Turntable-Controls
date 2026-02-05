@@ -1,0 +1,40 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.6/include",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.6/include/soc/esp32/include",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.6/include/freertos/FreeRTOS-Kernel/include",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.6/include/freertos/config/include",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.6/include/**",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/tools/esp32-libs/3.3.6/qio_qspi/include",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/hardware/esp32/3.3.6/cores/esp32",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/hardware/esp32/3.3.6/variants/esp32",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/hardware/esp32/3.3.6/libraries/Wire/src",
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/hardware/esp32/3.3.6/libraries/*/src",
+                "/Users/devanshbajwala/Documents/Arduino/libraries/AS5600",
+                "/Users/devanshbajwala/Documents/Arduino/libraries/**"
+            ],
+            "forcedInclude": [
+                "/Users/devanshbajwala/Library/Arduino15/packages/esp32/hardware/esp32/3.3.6/cores/esp32/Arduino.h"
+            ],
+            "defines": [
+                "ARDUINO=10607",
+                "ARDUINO_ESP32_DEV",
+                "ARDUINO_ARCH_ESP32",
+                "ARDUINO_BOARD=\"ESP32_DEV\"",
+                "ARDUINO_VARIANT=\"esp32\"",
+                "ESP32=ESP32",
+                "F_CPU=240000000L",
+                "CORE_DEBUG_LEVEL=0"
+            ],
+            "compilerPath": "/Users/devanshbajwala/Library/Arduino15/packages/esp32/tools/esp-x32/2511/bin/xtensa-esp32-elf-g++",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64"
+        }
+    ],
+    "version": 4
+}

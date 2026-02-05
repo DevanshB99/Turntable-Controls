@@ -1,3 +1,9 @@
 {
-    "MATLAB.installPath": "/Applications/MATLAB_R2025b.app"
+    "MATLAB.installPath": "/Applications/MATLAB_R2025b.app",
+    "arduino.path": "/Applications/Arduino IDE.app",
+    "arduino.commandPath": "/Applications/Arduino IDE.app/Contents/Resources/app/lib/backend/resources/arduino-cli",
+    "arduino.useArduinoCli": true,
+    "arduino.enableUSBDetection": true,
+    "arduino.logLevel": "verbose",
+    "C_Cpp.intelliSenseEngine": "default"    
 }
