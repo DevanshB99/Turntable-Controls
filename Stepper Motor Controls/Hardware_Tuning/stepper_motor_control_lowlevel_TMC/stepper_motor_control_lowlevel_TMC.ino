@@ -1,16 +1,16 @@
 #include <Wire.h>
+#include "MT6701.hpp"
 
+#define STEP_PIN 27
+#define DIR_PIN  26
+#define EN_PIN   25
+#define SDA_PIN  21
+#define SCL_PIN  22
 
-#define STEP_PIN 25
-#define DIR_PIN 26
-#define EN_PIN 27
-#define MS1_PIN 14
-#define MS2_PIN 12
-#define MS3_PIN 13
-#define AS5600_ADDR 0x36
-
-const int MICROSTEPS = 8;
+const int MICROSTEPS = 16;
 const int STEPS_PER_REV = 200 * MICROSTEPS;
+
+MT6701 encoder(MT6701::DEFAULT_ADDRESS, 10);  // 10ms update, faster than the 20ms control loop below
 
 float Kp = 3.0;
 float Ki = 0.9;
@@ -25,31 +25,20 @@ const unsigned long CONTROL_INTERVAL = 20000;
 float targetStepRate = 0;
 unsigned long lastStepTime = 0;
 
-int readAS5600() {
-  Wire.beginTransmission(AS5600_ADDR);
-  Wire.write(0x0E);
-  Wire.endTransmission();
-  Wire.requestFrom(AS5600_ADDR, 2);
-  byte high = Wire.read();
-  byte low = Wire.read();
-  int rawAngle = ((high & 0x0F) << 8) | low;
-  return (rawAngle * 360.0) / 4095.0;
-}
-
 void homeToZero() {
   Serial.println("HOMING");
-  
-  float current_angle = readAS5600();
+
+  float current_angle = encoder.getAngleDegrees();
   float error = 0 - current_angle;
-  
+
   // Wrap to shortest path
   if (error > 180) error -= 360;
   if (error < -180) error += 360;
-  
+
   // Calculate steps needed
   int steps = abs(error) * STEPS_PER_REV / 360.0;
   digitalWrite(DIR_PIN, error >= 0 ? HIGH : LOW);
-  
+
   // Move to zero at constant speed
   for (int i = 0; i < steps; i++) {
     digitalWrite(STEP_PIN, HIGH);
@@ -57,42 +46,36 @@ void homeToZero() {
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(900);  // ~1kHz = slow, safe homing
   }
-  
+
   delay(500);  // Settle
-  
+
   // Check final position
-  float final_angle = readAS5600();
+  float final_angle = encoder.getAngleDegrees();
   Serial.print("HOMED:");
   Serial.println(final_angle);
 }
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin();
-  
+  Wire.begin(SDA_PIN, SCL_PIN, 400000);
+  encoder.begin();
+
   pinMode(STEP_PIN, OUTPUT);
   pinMode(DIR_PIN, OUTPUT);
   pinMode(EN_PIN, OUTPUT);
-  pinMode(MS1_PIN, OUTPUT);
-  pinMode(MS2_PIN, OUTPUT);
-  pinMode(MS3_PIN, OUTPUT);
-  
-  digitalWrite(MS1_PIN, HIGH);
-  digitalWrite(MS2_PIN, HIGH);
-  digitalWrite(MS3_PIN, LOW);
-  
+
   digitalWrite(EN_PIN, LOW);
-  
+
   Serial.println("READY");
 }
 
 void loop() {
   unsigned long now = micros();
-  
+
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    
+
     if (cmd == "HOME") {
       homeToZero();
     }
@@ -124,40 +107,40 @@ void loop() {
       Serial.println("STOPPED");
     }
     else if (cmd == "READ") {
-      Serial.println(readAS5600());
+      Serial.println(encoder.getAngleDegrees());
     }
   }
-  
+
   if (control_active && (now - lastControlTime >= CONTROL_INTERVAL)) {
-    float current_angle = readAS5600();
+    float current_angle = encoder.getAngleDegrees();
     float error = target_angle - current_angle;
-    
+
     if (error > 180) error -= 360;
     if (error < -180) error += 360;
-    
+
     integral += error * 0.02;
     if (integral > 100) integral = 100;
     if (integral < -100) integral = -100;
-    
+
     float derivative = (error - prev_error) / 0.02;
     float output = Kp * error + Ki * integral + Kd * derivative;
-    
+
     if (output > 400) output = 400;
     if (output < -400) output = -400;
-    
+
     targetStepRate = output;
     prev_error = error;
-    
+
     Serial.print("A");
     Serial.print(current_angle, 2);
     Serial.print(",E");
     Serial.print(error, 2);
     Serial.print(",C");
     Serial.println(output, 2);
-    
+
     lastControlTime = now;
   }
-  
+
   if (targetStepRate != 0) {
     unsigned long stepInterval = 1000000.0 / abs(targetStepRate);
     if (now - lastStepTime >= stepInterval) {
