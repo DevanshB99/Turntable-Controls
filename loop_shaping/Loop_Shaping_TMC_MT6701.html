@@ -1,0 +1,2467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TMC Loop Shaping</title>
+<style>
+/* ============================================================================
+   TOKENS
+   Colour is reserved for data. The chrome is achromatic on purpose, so nothing
+   in the interface competes with the four traces for attention.
+   Light palette lives on bare :root; dark redefines tokens only.
+   ========================================================================== */
+:root{
+  color-scheme:light;
+  --surface:#FBFBFC;      --surface-1:#F4F5F8;   --surface-2:#EDEFF3;
+  --surface-3:#E4E7EC;    --scrim:rgba(16,20,26,.34);
+  --on-surface:#12161B;   --on-surface-var:#4A535E;  --on-surface-dim:#78828E;
+  --outline:#C9CED6;      --outline-soft:#E1E4EA;
+  --state:rgba(18,22,27,.06);  --state-strong:rgba(18,22,27,.10);
+  --inverse:#12161B;      --on-inverse:#F7F8FA;
+
+  --mag:#2a78d6;   --ph:#eb6834;   --ang:#1baf7a;   --cmd:#4a3aa7;
+  --limit:#c0392b; --guide:#8A94A0;
+
+  --good:#136c4a;  --caution:#8a5a06;  --crit:#a32e21;
+  --good-c:#DFF1E9; --caution-c:#F8EEDC; --crit-c:#F8E4E1;
+  --good-o:#9FCBB8; --caution-o:#DDBE86; --crit-o:#E2AFA6;
+
+  --e1:0 1px 2px rgba(16,20,26,.07),0 1px 3px rgba(16,20,26,.05);
+  --e2:0 2px 6px rgba(16,20,26,.08),0 6px 18px rgba(16,20,26,.06);
+  --e3:0 6px 14px rgba(16,20,26,.13),0 18px 40px rgba(16,20,26,.10);
+  --r-s:8px; --r-m:12px; --r-l:18px;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --surface:#161A1E;    --surface-1:#1D2228;   --surface-2:#242A32;
+    --surface-3:#2D343C;  --scrim:rgba(0,0,0,.55);
+    --on-surface:#E9EDF2; --on-surface-var:#A7B1BC; --on-surface-dim:#76818D;
+    --outline:#3A434D;    --outline-soft:#272E36;
+    --state:rgba(233,237,242,.07); --state-strong:rgba(233,237,242,.12);
+    --inverse:#E9EDF2;    --on-inverse:#12161B;
+
+    --mag:#3987e5;  --ph:#d95926;  --ang:#199e70;  --cmd:#9085e9;
+    --limit:#e0705b; --guide:#68727E;
+
+    --good:#48c79a;  --caution:#e0a845;  --crit:#e5836e;
+    --good-c:#122A22; --caution-c:#2A2214; --crit-c:#2C1B17;
+    --good-o:#1F5442; --caution-o:#513F1B; --crit-o:#542E25;
+
+    --e1:0 1px 2px rgba(0,0,0,.5);
+    --e2:0 2px 6px rgba(0,0,0,.45),0 6px 18px rgba(0,0,0,.35);
+    --e3:0 6px 14px rgba(0,0,0,.55),0 18px 40px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --surface:#161A1E;    --surface-1:#1D2228;   --surface-2:#242A32;
+  --surface-3:#2D343C;  --scrim:rgba(0,0,0,.55);
+  --on-surface:#E9EDF2; --on-surface-var:#A7B1BC; --on-surface-dim:#76818D;
+  --outline:#3A434D;    --outline-soft:#272E36;
+  --state:rgba(233,237,242,.07); --state-strong:rgba(233,237,242,.12);
+  --inverse:#E9EDF2;    --on-inverse:#12161B;
+  --mag:#3987e5;  --ph:#d95926;  --ang:#199e70;  --cmd:#9085e9;
+  --limit:#e0705b; --guide:#68727E;
+  --good:#48c79a;  --caution:#e0a845;  --crit:#e5836e;
+  --good-c:#122A22; --caution-c:#2A2214; --crit-c:#2C1B17;
+  --good-o:#1F5442; --caution-o:#513F1B; --crit-o:#542E25;
+  --e1:0 1px 2px rgba(0,0,0,.5);
+  --e2:0 2px 6px rgba(0,0,0,.45),0 6px 18px rgba(0,0,0,.35);
+  --e3:0 6px 14px rgba(0,0,0,.55),0 18px 40px rgba(0,0,0,.45);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:var(--surface); color:var(--on-surface);
+  font:400 14px/1.55 var(--sans); overflow:hidden;
+}
+@media(max-width:900px){body{overflow:auto}}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid var(--on-surface);outline-offset:2px;border-radius:4px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------------------------------------------------------------- app bar */
+.app{display:flex;flex-direction:column;height:100%}
+.bar{
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:10px 20px 0; background:var(--surface-1);
+  border-bottom:1px solid var(--outline-soft);
+}
+.brand{display:flex;flex-direction:column;gap:1px;padding-bottom:10px;min-width:150px}
+.brand .t{font-size:15px;font-weight:640;letter-spacing:-.015em;line-height:1.2}
+.brand .s{font-family:var(--mono);font-size:10px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--on-surface-dim)}
+
+.status{display:flex;align-items:center;gap:16px;flex-wrap:wrap;flex:1;padding-bottom:10px}
+.verdict{
+  display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);
+  font-size:11.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  padding:7px 13px;border-radius:999px;border:1px solid;white-space:nowrap}
+.verdict .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.verdict.good{background:var(--good-c);color:var(--good);border-color:var(--good-o)}
+.verdict.caution{background:var(--caution-c);color:var(--caution);border-color:var(--caution-o)}
+.verdict.crit{background:var(--crit-c);color:var(--crit);border-color:var(--crit-o)}
+
+.metrics{display:flex;gap:2px;flex-wrap:wrap}
+.met{
+  display:flex;flex-direction:column;gap:0;padding:3px 11px;border-radius:var(--r-s);
+  cursor:help;transition:background .12s}
+.met:hover{background:var(--state)}
+.met dt{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--on-surface-dim);white-space:nowrap}
+.met dt .lc{text-transform:none}
+.met dd{margin:0;font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:16px;font-weight:620;line-height:1.25;white-space:nowrap}
+.met dd.good{color:var(--good)} .met dd.caution{color:var(--caution)} .met dd.crit{color:var(--crit)}
+
+@media(max-width:760px){
+  /* wrap + column + a bounded height makes flexbox spill into extra COLUMNS */
+  .bar{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:8px;padding:10px 14px 0}
+  .brand{padding-bottom:0;min-width:0}
+  .status{gap:10px;padding-bottom:9px;align-items:center;flex-wrap:nowrap;min-width:0}
+  .verdict{flex:none;font-size:10.5px;padding:6px 11px}
+  .metrics{flex-wrap:nowrap;overflow-x:auto;gap:0;min-width:0;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .metrics::-webkit-scrollbar{display:none}
+  .met{padding:2px 9px}
+  .met dd{font-size:14px}
+  .tabs{padding:0 14px}
+  .pane{padding:12px 14px 22px}
+}
+
+/* ------------------------------------------------------------------- tabs */
+.tabs{display:flex;gap:2px;padding:0 20px;background:var(--surface-1);
+  border-bottom:1px solid var(--outline);overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  position:relative;appearance:none;background:none;border:0;cursor:pointer;
+  padding:11px 16px 12px;font:inherit;font-size:13.5px;font-weight:520;
+  color:var(--on-surface-var);white-space:nowrap;border-radius:var(--r-s) var(--r-s) 0 0;
+  transition:color .14s,background .14s}
+.tab:hover{background:var(--state);color:var(--on-surface)}
+.tab[aria-selected="true"]{color:var(--on-surface);font-weight:640}
+.tab[aria-selected="true"]::after{
+  content:"";position:absolute;left:12px;right:12px;bottom:-1px;height:3px;
+  background:var(--on-surface);border-radius:3px 3px 0 0}
+
+/* ------------------------------------------------------------------ panes */
+.panes{flex:1;min-height:0;position:relative}
+.pane{position:absolute;inset:0;overflow:auto;padding:16px 20px 22px;display:none}
+.pane[data-active]{display:block}
+#pn-bench[data-active]{display:block}
+@media(max-width:900px){
+  .panes{position:static}
+  .pane{position:static;display:none}
+  .pane[data-active]{display:block}
+#pn-bench[data-active]{display:block}
+}
+
+/* ------------------------------------------------------------- bench grid */
+.bench{display:grid;grid-template-columns:268px minmax(0,1fr);gap:16px;align-items:start;padding-bottom:8px}
+@media(max-width:1080px){.bench{grid-template-columns:1fr;height:auto}}
+.plots{display:flex;flex-direction:column;gap:14px}
+.lower{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:14px}
+@media(max-width:900px){.lower{grid-template-columns:1fr}}
+
+.card{background:var(--surface);border:1px solid var(--outline-soft);
+  border-radius:var(--r-m);box-shadow:var(--e1);display:flex;flex-direction:column}
+.card.pad{padding:14px 15px}
+.card-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  padding:11px 14px 0}
+.card-h h2{margin:0;font-size:13px;font-weight:640;letter-spacing:-.005em}
+.card-h .rd{font-family:var(--mono);font-size:10.5px;color:var(--on-surface-dim);
+  white-space:nowrap;font-variant-numeric:tabular-nums}
+.keys{display:flex;flex-wrap:wrap;gap:3px 12px;padding:5px 14px 0}
+.key{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);
+  font-size:10px;color:var(--on-surface-var);cursor:help}
+.key i{width:13px;height:2.5px;border-radius:2px;background:currentColor;flex:none}
+.key i.dash{height:0;border-top:2px dashed currentColor;background:none}
+.cv{position:relative;padding:2px 10px 12px}
+.cv.bode{height:430px}
+.cv.step{height:310px}
+.cv.pz{height:310px}
+@media(max-width:1200px){.cv.bode{height:390px}}
+@media(max-width:900px){.cv.bode{height:340px}.cv.step{height:270px}.cv.pz{height:270px}}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+
+/* ------------------------------------------------------------------- rail */
+.rail{display:flex;flex-direction:column;gap:12px}
+.rail>.card{flex:0 0 auto}
+
+.sec{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--on-surface-dim);margin:0 0 10px;font-weight:600;display:flex;
+  align-items:center;justify-content:space-between;gap:8px}
+.gain{margin-bottom:15px}
+.gain:last-child{margin-bottom:0}
+.gain-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:5px}
+.gain-h label{font-family:var(--mono);font-size:12.5px;font-weight:640;cursor:help;
+  display:inline-flex;align-items:center;gap:6px}
+.swatch{width:8px;height:8px;border-radius:2px;flex:none}
+.gain-h .u{font-size:10.5px;color:var(--on-surface-dim);font-family:var(--mono)}
+.row{display:grid;grid-template-columns:1fr 68px;gap:9px;align-items:center}
+
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:20px;
+  background:transparent;margin:0;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:var(--surface-3)}
+input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:var(--surface-3)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;
+  border-radius:50%;background:var(--on-surface);border:0;margin-top:-5.5px;
+  box-shadow:0 0 0 0 var(--state-strong);transition:box-shadow .14s}
+input[type=range]:hover::-webkit-slider-thumb{box-shadow:0 0 0 7px var(--state)}
+input[type=range]:active::-webkit-slider-thumb{box-shadow:0 0 0 10px var(--state-strong)}
+input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;
+  background:var(--on-surface);border:0}
+input[type=number]{width:100%;padding:5px 7px;border:1px solid var(--outline);
+  border-radius:var(--r-s);background:var(--surface);color:var(--on-surface);
+  font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12.5px;text-align:right}
+input[type=number]:focus{border-color:var(--on-surface)}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{appearance:none;font-family:var(--mono);font-size:11px;padding:6px 11px;
+  border-radius:999px;border:1px solid var(--outline);background:transparent;
+  color:var(--on-surface-var);cursor:pointer;transition:background .13s,color .13s}
+.chip:hover{background:var(--state);color:var(--on-surface)}
+.chip[aria-pressed="true"]{background:var(--inverse);color:var(--on-inverse);border-color:var(--inverse)}
+
+.sw{display:flex;gap:10px;align-items:flex-start;padding:8px;margin:-8px;
+  border-radius:var(--r-s);cursor:pointer;transition:background .13s}
+.sw:hover{background:var(--state)}
+.sw+.sw{margin-top:2px}
+.sw input{margin:2px 0 0;width:15px;height:15px;flex:none;accent-color:var(--on-surface)}
+.sw .lb{display:block;font-size:12.5px;font-weight:560;line-height:1.4}
+.sw .hs{display:block;font-size:11.5px;color:var(--on-surface-dim);line-height:1.4;margin-top:1px}
+
+.tip-note{font-size:11px;color:var(--on-surface-dim);line-height:1.45;margin:9px 0 0}
+.hintbar{display:flex;gap:8px;align-items:flex-start;background:var(--surface-1);
+  border:1px solid var(--outline-soft);border-radius:var(--r-s);padding:9px 11px;
+  font-size:11.5px;line-height:1.5;color:var(--on-surface-var)}
+.hintbar b{color:var(--on-surface);font-weight:620}
+
+/* --------------------------------------------------------------- coaching */
+.coach{padding:13px 15px 15px;margin-top:14px}
+.coach .msg{font-size:13px;line-height:1.6;margin:0 0 10px;color:var(--on-surface-var)}
+.coach .msg b{color:var(--on-surface);font-weight:620}
+.coach .msg:last-child{margin-bottom:0}
+.notes{display:flex;flex-direction:column;gap:7px;margin:0;padding:0;list-style:none}
+.notes li{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;
+  font-size:12.5px;line-height:1.5;color:var(--on-surface-var)}
+.badge{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.05em;
+  padding:2px 7px;border-radius:999px;border:1px solid;white-space:nowrap;margin-top:1px}
+.badge.good{background:var(--good-c);color:var(--good);border-color:var(--good-o)}
+.badge.caution{background:var(--caution-c);color:var(--caution);border-color:var(--caution-o)}
+.badge.crit{background:var(--crit-c);color:var(--crit);border-color:var(--crit-o)}
+.badge.info{background:var(--surface-2);color:var(--on-surface-var);border-color:var(--outline)}
+
+/* ----------------------------------------------------------------- tooltip */
+#tip{
+  position:fixed;z-index:90;max-width:290px;pointer-events:none;opacity:0;
+  transform:translateY(3px);transition:opacity .12s,transform .12s;
+  background:var(--inverse);color:var(--on-inverse);border-radius:var(--r-s);
+  padding:8px 11px;font-size:12px;line-height:1.5;box-shadow:var(--e3)}
+#tip[data-show]{opacity:1;transform:translateY(0)}
+#tip b{font-weight:650}
+#tip .h{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  opacity:.72;display:block;margin-bottom:3px}
+
+/* ------------------------------------------------------------------ prose */
+.doc{max-width:1180px;margin:0 auto;padding-bottom:40px}
+.doc-lede{font-size:16px;line-height:1.65;color:var(--on-surface-var);max-width:68ch;margin:2px 0 22px}
+.doc-lede b{color:var(--on-surface);font-weight:620}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--outline-soft);border-radius:var(--r-m);
+  padding:18px 20px;box-shadow:var(--e1)}
+.panel h3{margin:0 0 3px;font-size:15px;font-weight:640;letter-spacing:-.01em}
+.panel .eyebrow{font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--on-surface-dim);margin:0 0 9px;font-weight:600}
+.panel p{margin:0 0 11px;font-size:13.5px;line-height:1.65;color:var(--on-surface-var)}
+.panel p:last-child{margin-bottom:0}
+.panel strong{color:var(--on-surface);font-weight:620}
+.panel ol,.panel ul{margin:0 0 11px;padding-left:19px;font-size:13.5px;line-height:1.65;
+  color:var(--on-surface-var)}
+.panel li{margin-bottom:6px}
+.panel li:last-child{margin-bottom:0}
+code{font-family:var(--mono);font-size:.9em;background:var(--surface-2);padding:1px 5px;
+  border-radius:4px;border:1px solid var(--outline-soft)}
+.dt{width:100%;border-collapse:collapse;font-size:12.5px;margin:4px 0 12px}
+.dt th,.dt td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--outline-soft);
+  vertical-align:top}
+.dt th{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--on-surface-dim);font-weight:600}
+.dt td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.dt tr:last-child td{border-bottom:0}
+.formula{font-family:var(--mono);font-size:12.5px;background:var(--surface-1);
+  border:1px solid var(--outline-soft);border-left:3px solid var(--on-surface-dim);
+  border-radius:var(--r-s);padding:10px 12px;margin:2px 0 12px;overflow-x:auto;
+  white-space:pre;color:var(--on-surface)}
+.step{display:grid;grid-template-columns:auto 1fr;gap:11px;margin-bottom:13px}
+.step:last-child{margin-bottom:0}
+.step .n{font-family:var(--mono);font-size:11px;font-weight:700;width:22px;height:22px;
+  border-radius:50%;background:var(--inverse);color:var(--on-inverse);display:grid;
+  place-items:center;margin-top:1px}
+.step .b{font-size:13.5px;line-height:1.6;color:var(--on-surface-var)}
+.step .b b{color:var(--on-surface);font-weight:620;display:block;margin-bottom:2px}
+.zbar{display:flex;height:26px;border-radius:var(--r-s);overflow:hidden;margin:6px 0 10px;
+  border:1px solid var(--outline)}
+.zbar span{flex:1;display:grid;place-items:center;font-family:var(--mono);font-size:10px;
+  font-weight:600;color:var(--on-inverse)}
+</style>
+</head>
+<body>
+
+<div id="tip" role="tooltip"></div>
+
+<div class="app">
+
+  <!-- ================================================================ BAR -->
+  <header class="bar">
+    <div class="brand">
+      <span class="t">Loop Shaping Bench</span>
+      <span class="s">NEMA17 · TMC2209 · MT6701 — position loop on the ESP32</span>
+    </div>
+    <div class="status">
+      <span class="verdict good" id="verdict"><span class="dot"></span><span id="verdict-t">Stable</span></span>
+      <dl class="metrics" id="metrics">
+        <div class="met" data-tip="Phase margin|How far above −180° the phase sits at the crossover frequency. This is your safety buffer. Aim for 45–65°.">
+          <dt>Phase margin</dt><dd id="m-pm">—</dd></div>
+        <div class="met" data-tip="Gain margin|How much more gain the loop could take before it goes unstable. 6 dB means you could double Kp and survive.">
+          <dt>Gain margin</dt><dd id="m-gm">—</dd></div>
+        <div class="met" data-tip="Crossover frequency|Where the magnitude curve passes 0 dB. It sets how fast the loop responds — roughly, the loop settles in about 4/ωc seconds.">
+          <dt>Crossover <span class="lc">ω</span></dt><dd id="m-wc">—</dd></div>
+        <div class="met" data-tip="Overshoot|How far past the target the turntable travels, as a percentage of the move. Measured from the simulated response, not predicted.">
+          <dt>Overshoot</dt><dd id="m-os">—</dd></div>
+        <div class="met" data-tip="Settling time|When the response enters the ±2% band around the target and stays there.">
+          <dt>Settling</dt><dd id="m-ts">—</dd></div>
+        <div class="met" data-tip="Achieved damping|The damping the loop is actually delivering, read from the closed-loop pole positions. Compare it against your target ζ.">
+          <dt>Achieved <span class="lc">ζ</span></dt><dd id="m-z">—</dd></div>
+        <div class="met" data-tip="Largest pole magnitude|The distance of the furthest closed-loop pole from the centre of the unit circle. Below 1 the loop is stable; above 1 it runs away.">
+          <dt>Max |z|</dt><dd id="m-pole">—</dd></div>
+      </dl>
+    </div>
+  </header>
+
+  <!-- =============================================================== TABS -->
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" id="tb-bench" aria-controls="pn-bench" aria-selected="true"  data-tab="bench">Bench</button>
+    <button class="tab" role="tab" id="tb-read"  aria-controls="pn-read"  aria-selected="false" data-tab="read">Reading the plots</button>
+    <button class="tab" role="tab" id="tb-tune"  aria-controls="pn-tune"  aria-selected="false" data-tab="tune">How to tune</button>
+    <button class="tab" role="tab" id="tb-damp"  aria-controls="pn-damp"  aria-selected="false" data-tab="damp">Damping</button>
+    <button class="tab" role="tab" id="tb-plant" aria-controls="pn-plant" aria-selected="false" data-tab="plant">Your plant</button>
+    <button class="tab" role="tab" id="tb-auto"  aria-controls="pn-auto"  aria-selected="false" data-tab="auto">Auto-tune</button>
+  </nav>
+
+  <div class="panes">
+
+  <!-- ============================================================== BENCH -->
+  <section class="pane" id="pn-bench" role="tabpanel" aria-labelledby="tb-bench" data-active>
+    <div class="bench">
+
+      <!-- ------------------------------------------------------- rail -->
+      <div class="rail">
+
+        <div class="card pad">
+          <p class="sec">System</p>
+          <div class="chips">
+            <button class="chip" data-sys="nema" data-tip="Bare NEMA17|Motor shaft only. Ka from System_ID_Nema17_TMC.m, clamp = MAX_STEP_RATE in Nema17_TMC_Combined.ino.">NEMA17 motor</button>
+            <button class="chip" data-sys="tt" data-tip="Turntable, 4:1 belt|Angles are turntable degrees. Ka starts at the theoretical value until System_ID_Turntable.m gives you the real one.">Turntable 4:1</button>
+          </div>
+          <p class="tip-note" id="sys-note"></p>
+        </div>
+
+        <div class="card pad">
+          <p class="sec">Controller gains</p>
+
+          <div class="gain">
+            <div class="gain-h">
+              <label for="s-kp" data-tip="Proportional gain|Reacts to the error right now. On the magnitude plot it is a pure vertical slide — it never touches the phase curve.">
+                <span class="swatch" style="background:var(--mag)"></span>Kp</label>
+              <span class="u">steps/s per °</span>
+            </div>
+            <div class="row">
+              <input type="range" id="s-kp" min="0" max="400" step="0.1" value="69.8" aria-label="Kp">
+              <input type="number" id="n-kp" min="0" max="3000" step="0.1" value="69.8">
+            </div>
+          </div>
+
+          <div class="gain">
+            <div class="gain-h">
+              <label for="s-ki" data-tip="Integral gain|Reacts to accumulated past error. Lifts the low-frequency end of the magnitude curve and drags phase down toward −180° there.">
+                <span class="swatch" style="background:var(--ang)"></span>Ki</label>
+              <span class="u">steps/s per °·s</span>
+            </div>
+            <div class="row">
+              <input type="range" id="s-ki" min="0" max="1200" step="0.1" value="61.435" aria-label="Ki">
+              <input type="number" id="n-ki" min="0" max="5000" step="0.1" value="61.435">
+            </div>
+          </div>
+
+          <div class="gain">
+            <div class="gain-h">
+              <label for="s-kd" data-tip="Derivative gain|Reacts to how fast the error is changing. Lifts the high-frequency end and pushes phase back up — the only term that gives margin back. It also amplifies encoder noise.">
+                <span class="swatch" style="background:var(--ph)"></span>Kd</label>
+              <span class="u">steps per °</span>
+            </div>
+            <div class="row">
+              <input type="range" id="s-kd" min="0" max="10" step="0.005" value="0.827" aria-label="Kd">
+              <input type="number" id="n-kd" min="0" max="50" step="0.005" value="0.827">
+            </div>
+          </div>
+
+          <div class="chips" style="margin-top:13px">
+            <button class="chip" data-act="p"     data-tip="P only|Zero the I and D terms and keep Kp. This is where every tuning session should start.">P only</button>
+            <button class="chip" data-act="pi"    data-tip="Add I|Sets Ki so the integral corner sits well below crossover — a safe starting point, not an answer.">Add I</button>
+            <button class="chip" data-act="pid"   data-tip="Add D|Sets Kd so the derivative corner sits near crossover, where it buys the most phase.">Add D</button>
+            <button class="chip" data-act="best"  data-tip="Best so far|Kp 69.8, Ki 61.435, Kd 0.827 — the best NEMA17 hardware run (130° step: 2.7% overshoot, 0.4° error, settled in 478 ms). That run was before the derivative filter was added.">Best so far</button>
+            <button class="chip" data-act="reset" data-tip="Reset|Back to Kp = 10, no I, no D — a deliberately sluggish starting point.">Reset</button>
+          </div>
+        </div>
+
+        <div class="card pad">
+          <p class="sec">Target</p>
+          <div class="gain">
+            <div class="gain-h">
+              <label for="s-z" data-tip="Target damping ζ|The response shape you are aiming for. 0 oscillates forever, 1 has no overshoot at all. See the Damping tab for when to use each.">
+                <span class="swatch" style="background:var(--guide)"></span>Damping ζ</label>
+              <span class="u mono" id="z-read">0.70</span>
+            </div>
+            <div class="row">
+              <input type="range" id="s-z" min="0" max="1" step="0.01" value="0.7" aria-label="Target damping">
+              <input type="number" id="n-z" min="0" max="1" step="0.01" value="0.7">
+            </div>
+            <p class="tip-note" id="z-note"></p>
+          </div>
+        </div>
+
+        <div class="card pad">
+          <p class="sec">Test conditions</p>
+          <label class="sw" data-tip="Hardware limits|Adds what the firmware really does: the step-rate clamp (MAX_STEP_RATE), the ±100 integral clamp and the 16384-count encoder. All three are non-linear, which is why the Bode plots cannot see them.">
+            <input type="checkbox" id="c-hw">
+            <span><span class="lb">Include hardware limits</span>
+            <span class="hs">Step-rate clamp, integral clamp, encoder counts</span></span>
+          </label>
+          <label class="sw" data-tip="Input shape|A step is the honest tuning test — it is deliberately harsh so the machine's character shows. A ramp is how you would really move a turntable carrying a part.">
+            <input type="checkbox" id="c-ramp">
+            <span><span class="lb">Ramp the setpoint over 5 s</span>
+            <span class="hs" id="ramp-hs">Off = a hard step</span></span>
+          </label>
+          <div class="gain" style="margin-top:12px">
+            <div class="gain-h"><label for="s-r" data-tip="Step size|How far the test move goes. Match it to target_angle in Hardware_PID_Tuning.m to compare against a real run.">Step size</label><span class="u">°</span></div>
+            <div class="row"><input type="range" id="s-r" min="5" max="360" step="1" value="130" aria-label="Step size">
+            <input type="number" id="n-r" min="1" max="360" step="1" value="130"></div>
+          </div>
+        </div>
+
+        <div class="card pad">
+          <p class="sec">Plant constants</p>
+          <div class="gain">
+            <div class="gain-h"><label for="s-ka" data-tip="Actuator gain Ka|Degrees per second of movement for 1 microstep/s of command. It is K in the system ID result sys_p = K/(s+p). Multiplies loop gain exactly like Kp does.">Ka</label><span class="u">°/s per step/s</span></div>
+            <div class="row"><input type="range" id="s-ka" min="0.005" max="0.3" step="0.0005" value="0.1235" aria-label="Ka">
+            <input type="number" id="n-ka" min="0.001" max="2" step="0.0005" value="0.1235"></div>
+          </div>
+          <div class="gain">
+            <div class="gain-h"><label for="s-td" data-tip="Dead time Td|How stale the angle is when the loop uses it. The MT6701 library refreshes the angle every 10 ms in the background, so on average it is about 5 ms old. Pure phase loss.">Td</label><span class="u">s</span></div>
+            <div class="row"><input type="range" id="s-td" min="0" max="0.06" step="0.001" value="0.005" aria-label="Td">
+            <input type="number" id="n-td" min="0" max="0.5" step="0.001" value="0.005"></div>
+          </div>
+          <div class="gain">
+            <div class="gain-h"><label for="s-ta" data-tip="Actuator lag τa|How long the motor takes to reach a commanded speed. The firmware has no acceleration ramp, so this is only rotor (and belt and disc) inertia — too small for the bare-motor system ID to see.">τa</label><span class="u">s</span></div>
+            <div class="row"><input type="range" id="s-ta" min="0.001" max="0.2" step="0.001" value="0.005" aria-label="tau a">
+            <input type="number" id="n-ta" min="0.001" max="1" step="0.001" value="0.005"></div>
+          </div>
+          <div class="gain">
+            <div class="gain-h"><label for="s-tf" data-tip="Encoder filter τf|Smoothing applied to the angle reading. The current firmware does not filter the angle, so this is 0.">τf</label><span class="u">s</span></div>
+            <div class="row"><input type="range" id="s-tf" min="0" max="0.06" step="0.001" value="0" aria-label="tau f">
+            <input type="number" id="n-tf" min="0" max="0.5" step="0.001" value="0"></div>
+          </div>
+          <div class="gain">
+            <div class="gain-h"><label for="s-mx" data-tip="Max step rate|MAX_STEP_RATE in the firmware. Only used when hardware limits are on.">Max rate</label><span class="u">steps/s</span></div>
+            <div class="row"><input type="range" id="s-mx" min="200" max="6000" step="50" value="3000" aria-label="Max step rate">
+            <input type="number" id="n-mx" min="50" max="20000" step="50" value="3000"></div>
+          </div>
+          <p class="tip-note">These describe your machine, not your tuning. Ka comes straight from system ID; the <b>Your plant</b> tab explains the rest. Fixed in the firmware: 20 ms loop, derivative filter α = 0.2 (Tf = 0.08 s).</p>
+        </div>
+
+      </div>
+
+      <!-- ------------------------------------------------------ plots -->
+      <div class="plots">
+
+        <div class="card">
+          <div class="card-h">
+            <h2>Loop response</h2>
+            <span class="rd" id="rd-bode">drag any handle to set a gain</span>
+          </div>
+          <div class="keys">
+            <span class="key" style="color:var(--mag)" data-tip="Magnitude|How much the whole loop amplifies a wobble at each frequency. Above 0 dB it grows the wobble; below 0 dB it shrinks it."><i></i>|L| dB</span>
+            <span class="key" style="color:var(--ph)" data-tip="Phase|How far behind the loop is running at each frequency. The two panels share one frequency axis, so a point on the magnitude curve sits directly above its phase."><i></i>∠L °</span>
+            <span class="key" style="color:var(--guide)" data-tip="Guides|0 dB is the crossover line on the top panel. On the bottom panel the dotted line is the phase margin your target damping asks for."><i class="dash"></i>0 dB · ζ target</span>
+            <span class="key" style="color:var(--limit)" data-tip="Limits|−180° is the cliff edge. The vertical line is the delay ceiling — 0.5 divided by (dead time + half a 20 ms sample) — past which no gain combination stays stable."><i class="dash"></i>−180° · ceiling</span>
+          </div>
+          <div class="cv bode"><canvas id="cv-bode"></canvas></div>
+        </div>
+
+        <div class="lower">
+          <div class="card">
+            <div class="card-h">
+              <h2>Response</h2>
+              <span class="rd" id="rd-step">130° step</span>
+            </div>
+            <div class="keys">
+              <span class="key" style="color:var(--ang)" data-tip="Angle|Where the shaft (or disc) actually is, over time."><i></i>angle</span>
+              <span class="key" style="color:var(--cmd)" data-tip="Command|The speed the controller is asking for, on its own panel below. If it sits pinned at its limit, the gains are doing nothing."><i></i>command steps/s</span>
+              <span class="key" style="color:var(--guide)" data-tip="±2% band|The settling window. The response has to enter this and stay in it."><i class="dash"></i>±2%</span>
+            </div>
+            <div class="cv step"><canvas id="cv-step"></canvas></div>
+          </div>
+
+          <div class="card">
+            <div class="card-h">
+              <h2>Closed-loop poles</h2>
+              <span class="rd" id="rd-pz">hover a pole</span>
+            </div>
+            <div class="keys">
+              <span class="key" style="color:var(--on-surface-dim)" data-tip="Unit circle|Sampled at 50 Hz (the 20 ms loop). Every pole inside the circle decays; a pole outside it grows without limit. Distance from centre is speed, angle is ringing.">inside = decays · outside = runs away</span>
+            </div>
+            <div class="cv pz"><canvas id="cv-pz"></canvas></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="card coach">
+      <p class="sec">What changed</p>
+      <div id="coach-msg"><p class="msg">Drag a handle on a plot, or move a slider. This panel explains what it did and why the three plots moved together.</p></div>
+      <ul class="notes" id="coach-notes"></ul>
+    </div>
+  </section>
+
+  <!-- ============================================================ READING -->
+  <section class="pane" id="pn-read" role="tabpanel" aria-labelledby="tb-read">
+    <div class="doc">
+      <p class="doc-lede">Two curves and one rule. Everything else on this page is a
+      consequence of them. <b>Find where the magnitude curve crosses 0 dB, then look
+      straight down at the phase curve at that same frequency.</b> How far the phase
+      sits above −180° there is your entire safety margin.</p>
+
+      <div class="cols">
+        <div class="panel">
+          <p class="eyebrow">The rule</p>
+          <h3>Why −180° is the cliff edge</h3>
+          <p>Negative feedback works by <em>subtracting</em> the measurement from the target.
+          That subtraction only helps if the measurement arrives roughly on time.</p>
+          <p>Now suppose a wobble travels round the loop and comes back <strong>half a cycle
+          late</strong> — that is what −180° of phase means. Half a cycle late is upside
+          down. The subtraction now behaves like an addition, and the correction arrives
+          exactly in time to make the wobble <em>bigger</em>.</p>
+          <p>If the loop is also amplifying at that frequency — magnitude above 0 dB — the
+          wobble grows on every lap. That is instability, and it is nothing more mysterious
+          than the geometry of two curves.</p>
+          <p><strong>So you need either less than 0 dB of gain, or more than −180° of phase,
+          at every single frequency.</strong> Trouble only lives where they overlap.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Reading magnitude</p>
+          <h3>What the height of the curve tells you</h3>
+          <p>Magnitude is <em>how much the loop amplifies</em> a disturbance at each speed of
+          wiggle. It is drawn in decibels, so 0 dB means "same size out as in", +20 dB means
+          ten times bigger, −20 dB means ten times smaller.</p>
+          <p><strong>On the left — low frequency — you want the curve high.</strong> That is
+          slow, persistent stuff: a steady friction load, a heavy part on one side of the
+          disc. High gain there means the loop crushes those errors.</p>
+          <p><strong>On the right — high frequency — you want the curve low.</strong> That is
+          fast, twitchy stuff: encoder noise, the last digit flickering. Low gain there means
+          the loop ignores it instead of chasing it.</p>
+          <p>The crossover is where you hand over from one behaviour to the other. Choosing
+          it is most of what tuning is.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Reading phase</p>
+          <h3>Where the lag comes from</h3>
+          <p>Every phase curve here is the sum of a few fixed contributions, and it helps to
+          know which part is which:</p>
+          <table class="dt">
+            <tr><th>Source</th><th>Phase it costs</th></tr>
+            <tr><td>The motor itself (position is the integral of step rate)</td><td class="n">−90° everywhere</td></tr>
+            <tr><td>Actuator lag τa</td><td class="n">0 → −90°</td></tr>
+            <tr><td>Encoder filter τf</td><td class="n">0 → −90°</td></tr>
+            <tr><td>Dead time Td</td><td class="n">−ω·Td, no limit</td></tr>
+          </table>
+          <p>The first three level off. <strong>Dead time never does</strong> — it keeps
+          taking phase for ever as frequency rises. That is why it, and not the motor, is
+          what ultimately limits how fast this machine can be.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Term by term</p>
+          <h3>What each gain does to the two curves</h3>
+          <p><strong>Kp moves magnitude only.</strong> Doubling it lifts the whole magnitude
+          curve by 6 dB and leaves the phase curve untouched — not approximately, exactly.
+          But lifting the curve slides the crossover to the right, and since phase falls as
+          frequency rises, you end up reading the phase curve at a worse place.
+          <strong>Kp costs you margin without ever touching phase.</strong></p>
+          <p><strong>Ki lifts the left-hand end</strong> and bends phase down toward −90°
+          there. Below the corner at ω = Ki/Kp it dominates; above it, it is invisible.</p>
+          <p><strong>Kd lifts the right-hand end</strong> and pushes phase back up near its
+          corner at ω = Kp/Kd. It is the only term that gives margin back — and the only one
+          that amplifies your encoder's noise.</p>
+          <p>Drag the pucks on the Bench tab and watch each of these happen.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">The pole map</p>
+          <h3>Reading the unit circle</h3>
+          <p>The Bode plots describe the loop <em>before</em> you close it. The pole map
+          describes the machine <em>after</em> you close it — the actual behaviour you will
+          feel.</p>
+          <p>Because the controller runs at a fixed 50 Hz (every 20 ms on the ESP32), each pole is a number that the
+          error gets multiplied by on every tick. <strong>Inside the circle, that number is
+          less than one, so disturbances shrink.</strong> Outside, they grow.</p>
+          <p>Distance from the centre tells you <em>speed</em>: closer to the edge is slower.
+          Angle tells you <em>ringing</em>: a pole sitting on the positive real axis never
+          oscillates no matter how slow it is, while a pole at a steep angle rings. That is
+          why a pole at 0.99 on the axis is fine and a pole at 0.90 at 45° is not.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">The limit of this model</p>
+          <h3>What the plots cannot see</h3>
+          <p>Tick <strong>Include hardware limits</strong> and the response changes while the
+          Bode plots do not move at all. They have not failed — they were never able to see
+          it.</p>
+          <p><strong>Bode analysis assumes the system is linear.</strong> A clamp on the
+          output, a deadband near the target, and an encoder that reports whole counts are
+          all non-linear. None of them can be drawn as a curve.</p>
+          <p>The practical version: if the command trace sits pinned at its limit for most of
+          the move, the loop is effectively open and every number on this page is describing a
+          machine you are not currently running. Gains applied to a saturated actuator do
+          nothing.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================================== TUNE -->
+  <section class="pane" id="pn-tune" role="tabpanel" aria-labelledby="tb-tune">
+    <div class="doc">
+      <p class="doc-lede">A method, in order. The point of loop shaping is that
+      <b>every move you make has a reason you can say out loud</b> — which is the whole
+      difference between this and turning knobs until it looks better.</p>
+
+      <div class="cols">
+        <div class="panel">
+          <p class="eyebrow">Order of operations</p>
+          <h3>Five steps, and none of them skip</h3>
+
+          <div class="step"><span class="n">1</span><span class="b"><b>Kp alone, first</b>
+          Set Ki and Kd to zero. Raise Kp until the phase margin readout lands in the 45–65°
+          band. Watch the crossover walk right as you do — that is your loop getting faster,
+          and speed is the only thing Kp buys.</span></div>
+
+          <div class="step"><span class="n">2</span><span class="b"><b>Stop at the red line</b>
+          The dead-time ceiling is a wall, not a guideline. If crossover goes past it the
+          phase has already fallen through −180° and no amount of I or D will rescue you.
+          Getting past it needs a faster loop or less delay, which is a hardware job.</span></div>
+
+          <div class="step"><span class="n">3</span><span class="b"><b>Add Ki only for a
+          standing error</b> Watch the end of the response. If it parks short of the target
+          and just sits there, that is friction the proportional term is too weak to break,
+          and integral is the cure. If it reaches the target on its own, leave Ki at
+          zero.</span></div>
+
+          <div class="step"><span class="n">4</span><span class="b"><b>Add Kd only if you
+          need margin you cannot get another way</b> Raise it and watch the phase curve lift
+          near crossover. Then look at what it did to the right-hand end of the magnitude
+          curve — that is your encoder noise being amplified, and it is the price.</span></div>
+
+          <div class="step"><span class="n">5</span><span class="b"><b>Confirm on hardware</b>
+          Turn on the hardware limits here first to see what saturation will do. Then run the
+          real machine and check the response against the acceptance list.</span></div>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Targets</p>
+          <h3>Numbers that mean "done"</h3>
+          <table class="dt">
+            <tr><th>Quantity</th><th class="n">Aim for</th><th>Why</th></tr>
+            <tr><td>Phase margin</td><td class="n">45–65°</td><td>Under 30° rings; over 80° is needlessly slow</td></tr>
+            <tr><td>Gain margin</td><td class="n">≥ 6 dB</td><td>Kp could double and still hold</td></tr>
+            <tr><td>Overshoot</td><td class="n">&lt; 10%</td><td>ζ ≈ 0.7 lands at about 4%</td></tr>
+            <tr><td>Final error</td><td class="n">≤ 0.2°</td><td>Your trajectory requirement. The MT6701 itself resolves 0.022°</td></tr>
+            <tr><td>Max |z|</td><td class="n">&lt; 0.97</td><td>Comfortably inside the unit circle</td></tr>
+            <tr><td>Achieved ζ</td><td class="n">≥ 0.45</td><td>Below this the ringing gets obvious</td></tr>
+          </table>
+          <p>The gain margin one is worth understanding rather than memorising: <strong>6 dB
+          is exactly a factor of two.</strong> So "gain margin ≥ 6 dB" and "I could double Kp
+          and it would degrade but survive" are the same sentence. If you have ever tested a
+          controller by doubling a gain to see what happens, you were measuring gain margin
+          without knowing it had a name.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">On the machine</p>
+          <h3>Tests the simulation cannot run for you</h3>
+          <p><strong>The scaling test.</strong> Run 10°, 45°, 90° and 180° moves and plot
+          each one normalised to its own target. A linear loop gives four curves that lie
+          almost on top of each other. If instead the rise time grows in proportion to the
+          distance, the actuator is saturating and running at one fixed speed — and none of
+          the tuning on this page applies until that is fixed.</p>
+          <p><strong>The disturbance test.</strong> Let the turntable settle, then nudge it
+          about 10° by hand and let go. It should come back promptly and with the same
+          character as a step response. Sluggish return means Kp is too low. Oscillating
+          return means too high. No return at all means friction is beating a weak Kp.</p>
+          <p><strong>The repeatability test.</strong> Run the same move five times. If the
+          numbers move by more than about 10%, something in the system is not deterministic —
+          usually latency piling up — and you are tuning against noise.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Diagnosis</p>
+          <h3>When the symptom names the cause</h3>
+          <table class="dt">
+            <tr><th>What you see</th><th>What it usually is</th></tr>
+            <tr><td>Changing Kp by 10× barely changes anything</td><td>Saturation at MAX_STEP_RATE — the loop is effectively open</td></tr>
+            <tr><td>Buzzing while holding position</td><td>Derivative amplifying encoder noise, or dithering at the deadband edge</td></tr>
+            <tr><td>Fine at 90°, unstable at 10°</td><td>A non-linear actuator — small commands are not being delivered proportionally</td></tr>
+            <tr><td>Gets worse the longer it runs</td><td>Latency accumulating, so the feedback is increasingly stale</td></tr>
+            <tr><td>Reaches the target, waits, then creeps</td><td>Integral wound up while saturated and is now unwinding</td></tr>
+            <tr><td>Overshoots and rings at every gain you try</td><td>Crossover is past the dead-time ceiling</td></tr>
+          </table>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">A fair question</p>
+          <h3>Why not root locus?</h3>
+          <p>Root locus draws where the closed-loop poles travel as one gain varies. It is
+          elegant and it is on every controls syllabus. It also needs the plant to be a
+          <strong>ratio of polynomials</strong>.</p>
+          <p>This plant has a pure delay in it. A delay is not a polynomial and never will be
+          — written honestly it has infinitely many poles. To draw a root locus you have to
+          approximate the delay away first, and <em>the delay is the thing that is limiting
+          you</em>. You would be discarding the answer in order to make the method work.</p>
+          <p>On a Bode plot the same delay is trivial: magnitude completely untouched, phase
+          −ω·Td. Drag the Td slider and watch — the magnitude curve does not move at all
+          while the phase curve pivots downward. <strong>Loop shaping handles delay exactly,
+          which is why it is the right tool for this machine.</strong></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ DAMPING -->
+  <section class="pane" id="pn-damp" role="tabpanel" aria-labelledby="tb-damp">
+    <div class="doc">
+      <p class="doc-lede">Damping is the <b>shape</b> knob, and it is separate from the speed
+      knob. ζ does not say how fast the turntable gets there — it says what it does when it
+      arrives: sail past and come back, or ease in and stop.</p>
+
+      <div class="zbar" aria-hidden="true">
+        <span style="background:#a32e21">ζ = 0 · never stops</span>
+        <span style="background:#c77a1e">0.3 · rings</span>
+        <span style="background:#136c4a">0.7 · the usual answer</span>
+        <span style="background:#2a78d6">1.0 · no overshoot</span>
+        <span style="background:#4a535e">&gt;1 · crawls</span>
+      </div>
+
+      <div class="cols">
+        <div class="panel">
+          <p class="eyebrow">The bottom of the range</p>
+          <h3>ζ = 0 — what it means and when to use it</h3>
+          <p><strong>What it is.</strong> No damping whatsoever. Energy that goes into the
+          system never leaves. Push the turntable and it oscillates around the target
+          for ever at exactly constant amplitude — never growing, never dying.</p>
+          <p>On this page, setting ζ = 0 puts the target line exactly on <strong>−180°</strong>,
+          which is to say it asks for <strong>zero phase margin</strong>. Those are the same
+          statement. The pole map shows it as poles sitting exactly on the unit circle: they
+          multiply the error by exactly 1 every tick.</p>
+          <p><strong>When to use it as a design target: never.</strong> A machine at ζ = 0 is
+          not slow or ugly, it is <em>unusable</em> — it never finishes a move. And it is not
+          a safe place to sit, because any small change (a warmer bearing, a tighter belt,
+          slightly more delay) pushes it to the unstable side.</p>
+          <p><strong>When it is genuinely useful: as a reference line, and as an experiment.</strong>
+          Set it to 0 once to see exactly where the edge is — the line you must not let the
+          phase curve touch at crossover. And there is one classic tuning method that
+          deliberately drives the real machine to constant oscillation, measures the gain and
+          the period at which it happens, and computes gains from those two numbers. If you
+          ever run that experiment, ζ = 0 is the condition you are hunting for — with a hand
+          on the stop button.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">The top of the range</p>
+          <h3>ζ = 1 — what it means and when to use it</h3>
+          <p><strong>What it is.</strong> Critically damped: the exact boundary between
+          overshooting and not. <strong>Zero overshoot, and the fastest possible response
+          that still has zero overshoot.</strong> The turntable eases into the target and
+          stops dead — it never passes it, not even slightly.</p>
+          <p>Anything above ζ = 1 is <em>over</em>damped. Still no overshoot, but now slower
+          for no benefit — the response crawls in. There is no reason to go past 1 on
+          purpose.</p>
+          <p><strong>When to use it.</strong> Whenever passing the target is worse than
+          arriving late:</p>
+          <ul>
+            <li><strong>Imaging.</strong> If the camera triggers on arrival, an overshoot
+            means the part is still moving back when the shutter opens. That is a blurred or
+            mis-registered image, and no amount of processing recovers it.</li>
+            <li><strong>Anything the disc can collide with</strong> — a fixture, a probe, a
+            light ring. Overshoot is a physical impact.</li>
+            <li><strong>Backlash.</strong> Overshooting means reversing direction, and every
+            reversal takes up belt slack in the other direction. A move that only ever
+            approaches from one side is repeatable in a way that one which overshoots is not.</li>
+          </ul>
+          <p>The cost is honest: about 30–40% longer to settle than ζ = 0.7. If your cycle
+          time can absorb that, ζ = 1 is the safer machine.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">In between</p>
+          <h3>Why 0.7 is the default answer</h3>
+          <p>ζ ≈ 0.707 is the value that <strong>reaches the ±2% band soonest</strong>. Less
+          damping is quicker to get near the target but then wastes time ringing; more
+          damping never rings but takes longer to arrive. The minimum sits at about 0.7, and
+          it costs roughly 4% overshoot.</p>
+          <table class="dt">
+            <tr><th>ζ</th><th class="n">Overshoot</th><th class="n">Phase margin</th><th>Character</th></tr>
+            <tr><td>0</td><td class="n">100%</td><td class="n">0°</td><td>Never stops</td></tr>
+            <tr><td>0.3</td><td class="n">37%</td><td class="n">33°</td><td>Rings several times</td></tr>
+            <tr><td>0.5</td><td class="n">16%</td><td class="n">52°</td><td>One clear overshoot</td></tr>
+            <tr><td>0.7</td><td class="n">4.3%</td><td class="n">65°</td><td>Fastest to settle</td></tr>
+            <tr><td>0.9</td><td class="n">0.2%</td><td class="n">73°</td><td>Barely detectable</td></tr>
+            <tr><td>1.0</td><td class="n">0%</td><td class="n">76°</td><td>Eases in, stops</td></tr>
+          </table>
+          <p>The phase-margin column is why this page can talk about ζ at all: <strong>asking
+          for a damping ratio is the same as asking for a phase margin.</strong> A rough
+          shortcut worth remembering is that phase margin in degrees ≈ 100 × ζ, up to about
+          ζ = 0.6.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Reading it back</p>
+          <h3>Asked versus achieved</h3>
+          <p>The ζ slider sets a <em>target</em>. The <strong>Achieved ζ</strong> readout is
+          different — it is measured from where the closed-loop poles actually landed, so it
+          tells you what the machine is really doing.</p>
+          <p>When achieved is <strong>below</strong> your target, the loop is livelier than
+          you asked for: expect more overshoot than the table predicts. Lower Kp, or add Kd
+          to lift the phase at crossover.</p>
+          <p>When achieved is <strong>above</strong> target, you are safer than you asked to
+          be — which sounds good but means you are leaving speed unused. Raise Kp and watch
+          the crossover move right.</p>
+          <p>One honest caveat. The overshoot-versus-ζ table above is exact for a system with
+          exactly two poles. This machine has more than two, plus a delay, so once ζ drops
+          below about 0.4 the table starts <em>over</em>-predicting the overshoot you actually
+          measure. In the range you should be working in, it is close.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================== PLANT -->
+  <section class="pane" id="pn-plant" role="tabpanel" aria-labelledby="tb-plant">
+    <div class="doc">
+      <p class="doc-lede">Four numbers describe your machine. They are not tuning knobs —
+      <b>you do not get to choose them, you measure them.</b> Until they match your real rig,
+      every curve on the Bench tab is describing somebody else's turntable.</p>
+
+      <div class="panel" style="margin-bottom:14px">
+        <p class="eyebrow">The model</p>
+        <h3>How the four fit together</h3>
+        <div class="formula">command ──▶ [ actuator ] ──▶ [ integrate ] ──▶ angle
+              Ka, τa          speed→position
+                                                  │
+        measured angle ◀── [ delay ] ◀── [ filter ]│
+                              Td            τf     ▼</div>
+        <p>Read it as a sentence: <strong>a command becomes a speed</strong> (that is Ka, and
+        it takes τa seconds to get there), <strong>speed accumulates into position</strong>
+        (that is the turntable itself), and <strong>the angle comes back to you smoothed and
+        late</strong> (that is τf and Td).</p>
+        <p>The "integrate" box is worth pausing on, because it is free and it is the reason
+        this machine is more forgiving than most. You command a <em>speed</em> but you care
+        about a <em>position</em>, and position is just speed added up over time. That built-in
+        accumulation is why a plain proportional controller can reach the target here with no
+        steady-state error at all — the plant is doing the integrating for you.</p>
+      </div>
+
+      <div class="cols">
+
+        <div class="panel">
+          <p class="eyebrow">Constant 1 of 4</p>
+          <h3>Ka — actuator gain</h3>
+          <p><strong>What it is.</strong> How many degrees per second the shaft (or disc)
+          actually turns for 1 microstep/s of command. Units: °/s per step/s.</p>
+          <p><strong>Easiest: take it from system ID.</strong> The scripts fit
+          <code>sys_p = K/(s+p)</code>, and <strong>Ka = K</strong>. The bare NEMA17 gave
+          K = 0.1235. Theory at 1/16 microstepping is 360/3200 = 0.1125, so the fit is about 10%
+          high. For the turntable, theory is 360/(3200×4) = 0.0281 until
+          <code>System_ID_Turntable.m</code> gives you the real number. The pole p (0.008 rad/s)
+          is so slow it is effectively a pure integrator, which is what this page assumes.</p>
+          <p><strong>To check it by hand.</strong></p>
+          <ol>
+            <li>Turn the controller off so nothing is closing the loop. You are driving the
+            motor open-loop.</li>
+            <li>Send one fixed command value and leave it running.</li>
+            <li>Log the encoder angle for 10 seconds. Count the full revolutions and add the
+            leftover, so you have total degrees turned — not just the final reading, which
+            wraps.</li>
+            <li>Ka = (degrees turned ÷ seconds) ÷ command value.</li>
+            <li><strong>Repeat at three different command values</strong>, say a slow, a
+            medium and a fast one.</li>
+          </ol>
+          <p>Step 5 is the important one. If you get the same Ka all three times, your
+          actuator is linear and everything on this page is valid. <strong>If Ka changes with
+          command size, stop — that is the bug to fix</strong>, and no tuning will work until
+          it is.</p>
+          <p><strong>Why it matters.</strong> Ka multiplies loop gain in exactly the same way
+          Kp does. Doubling Ka and doubling Kp are indistinguishable to the loop. Try it: set
+          Ka to 2 and halve Kp, and every curve on the Bench tab stays put.</p>
+          <p><strong>What changes if it changes.</strong> The magnitude curve slides up or
+          down bodily; phase does not move. So a belt that starts slipping quietly looks
+          exactly like someone turned Kp down.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Constant 2 of 4</p>
+          <h3>Td — dead time</h3>
+          <p><strong>What it is.</strong> The flat delay between the motor moving and the
+          controller seeing it. Your PID runs <em>on the ESP32</em>, so USB is not inside the
+          loop. What remains is the MT6701 library: it reads the encoder in a background task
+          every 10 ms, so the angle the loop uses is 0–10 ms old, about <strong>5 ms</strong>
+          on average. Units: seconds.</p>
+          <p><strong>How to measure it.</strong></p>
+          <ol>
+            <li>Start from rest and make sure the angle reading is completely still.</li>
+            <li>Send a large step command and <strong>record the timestamp at the moment you
+            send it</strong>.</li>
+            <li>Scan forward through the logged angles for the first sample that differs from
+            rest by more than one encoder count.</li>
+            <li>Td is the gap between those two timestamps.</li>
+            <li>Do it about 20 times and take the <strong>median</strong>, not the average —
+            one unlucky run with a long buffer stall would drag a mean badly.</li>
+          </ol>
+          <p><strong>Why it matters — this is the most important of the four.</strong> Dead
+          time is pure loss. It costs phase at −ω·Td and gives back nothing, and unlike every
+          other lag here it never levels off. It sets a hard ceiling on how fast this machine
+          can ever be:</p>
+          <div class="formula">crossover ω  ≲  0.5 / Td</div>
+          <p>On this page the ceiling uses Td <em>plus half a sample</em> (10 ms), because holding each
+          command for one 20 ms tick behaves like that much extra delay. With Td = 5 ms that is about
+          <strong>33 rad/s</strong>. Kp ≈ 70 puts crossover near 9 rad/s, comfortably below it; the
+          pidTuner gains Kp = 236 and 295 put it near 30 and 37 rad/s, right up against it. So on this
+          setup the <strong>20 ms loop rate</strong> is the main limit, more than the encoder delay.
+          (Your 33–55% overshoots in July were measured before anti-windup was added; this page
+          reproduces them only with anti-windup switched off, so windup at the clamp caused them.)
+          That is a property of your firmware, <strong>not of your
+          tuning</strong>. No value of Kp, Ki or Kd beats it. Chasing past it is the single
+          most common way to waste weeks on a controller.</p>
+          <p><strong>What changes if it changes.</strong> Drag the Td slider and watch
+          carefully: the magnitude curve does not move at all, while the phase curve pivots
+          downward and the red ceiling line slides. Halving your dead time is worth more than
+          any gain you will ever find.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Constant 3 of 4</p>
+          <h3>τa — actuator lag</h3>
+          <p><strong>What it is.</strong> How long the motor takes to actually reach a speed
+          you asked for. Your firmware has <strong>no acceleration ramp</strong>: it changes the
+          step interval immediately. So τa is only the real inertia of the rotor, plus the belt
+          and disc on the turntable. On the bare motor it is too small for the 20 ms system ID
+          to see, so a few milliseconds is a fair guess. Units: seconds.</p>
+          <p><strong>How to measure it.</strong></p>
+          <ol>
+            <li>Controller off again, open loop.</li>
+            <li>From a standstill, command a step change to a steady speed and log the angle
+            at your fastest sample rate.</li>
+            <li>Convert angle to speed by taking the difference between consecutive samples
+            and dividing by the time between them.</li>
+            <li>Find the final steady speed, then find the moment the speed first reaches
+            <strong>63%</strong> of it. The time from the command to that moment is τa.</li>
+          </ol>
+          <p>Why 63%? That is what a first-order lag does in exactly one time constant. It is
+          not an arbitrary threshold — it is the definition.</p>
+          <p><strong>From system ID instead.</strong> If the 2-pole fit (<code>sys2</code>) on the
+          turntable clearly beats the 1-pole fit, its faster pole p₂ gives τa = 1/p₂. If the two
+          fits are equal, τa is too small to matter.</p>
+          <p><strong>What changes if it changes.</strong> τa bends the magnitude curve
+          steeper above ω = 1/τa and costs up to 90° of phase there. A gentler acceleration
+          ramp is kinder to the belt but directly buys you a slower loop — that is a real
+          trade, not a free choice.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Constant 4 of 4</p>
+          <h3>τf — encoder filter</h3>
+          <p><strong>What it is.</strong> The smoothing applied to the raw angle before it is
+          used. It exists because the encoder can only report whole counts, so a perfectly
+          still turntable still flickers between two adjacent values. Units: seconds.</p>
+          <p><strong>On your firmware it is 0</strong>: the angle goes into the PID unfiltered.
+          Only the <em>derivative</em> is filtered, and that filter is built into this page.
+          If you ever add an angle filter that blends each new reading with weight α on a loop
+          that runs every T<sub>loop</sub> seconds:</p>
+          <div class="formula">τf  =  T_loop × (1 − α) / α</div>
+          <p>The same formula gives your derivative filter: α = 0.2 on the 20 ms loop is
+          0.02 × 0.8 / 0.2 = <strong>0.08 s</strong>.</p>
+          <p><strong>How to check it is right.</strong> Hold the turntable still and log the
+          angle for 30 seconds. The spread of the readings tells you how much noise is
+          getting through. Then run a fast move and see how far the filtered reading lags the
+          real one. Those two measurements are the two ends of the same trade.</p>
+          <p><strong>Why it matters, and the trade you cannot escape.</strong> A filter
+          reduces noise by averaging over time, and <strong>averaging over time means the
+          reading describes where the disc was, not where it is</strong>. There is no setting
+          that gives you both. Turn τf up and the response gets visibly smoother while the
+          phase margin readout falls.</p>
+          <p><strong>What changes if you remove it.</strong> Set τf to 0 and the phase curve
+          lifts slightly — you get margin back. You also feed raw quantisation noise straight
+          into the controller, which matters enormously if Kd is non-zero and barely at all if
+          it is not.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Doing it properly</p>
+          <h3>One experiment that gives you three of them</h3>
+          <p>You already do this: <code>System_ID_Nema17_TMC.m</code> and
+          <code>System_ID_Turntable.m</code> drive the motor open-loop with <code>V</code> commands
+          and log the angle. Ka is K from the fit. If you want τa as well, a single well-logged
+          open-loop step does it by hand:</p>
+          <ol>
+            <li>Log time, command and angle together, at the fastest rate you can manage.</li>
+            <li>From rest, step the command to a fixed value and hold it for several seconds.</li>
+            <li>Plot the angle against time. Then plot the <em>speed</em> against time.</li>
+          </ol>
+          <p>From that one speed plot: the flat part before anything happens is
+          <strong>Td</strong>. The final steady speed divided by your command is
+          <strong>Ka</strong>. The time from the start of movement to 63% of that final speed
+          is <strong>τa</strong>.</p>
+          <p>Type the three numbers into the sliders on the Bench tab and the model becomes a
+          model of <em>your</em> machine. Everything it then tells you is about your rig
+          rather than a plausible example.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Sensitivity (general)</p>
+          <h3>Which one to spend your time on</h3>
+          <table class="dt">
+            <tr><th>Constant</th><th>Affects magnitude</th><th>Affects phase</th><th>Worth improving?</th></tr>
+            <tr><td>Ka</td><td>Shifts it bodily</td><td>No</td><td>No — just measure it right</td></tr>
+            <tr><td>Td</td><td>No</td><td>Severely, without limit</td><td><strong>Yes — biggest win</strong></td></tr>
+            <tr><td>τa</td><td>Bends it steeper</td><td>Up to −90°</td><td>Sometimes</td></tr>
+            <tr><td>τf</td><td>Bends it steeper</td><td>Up to −90°</td><td>Only if noise forces it</td></tr>
+          </table>
+          <p>The honest summary: <strong>Ka is bookkeeping, τa and τf are trades, and Td is
+          the enemy.</strong> If you want a genuinely faster turntable, the work is in the
+          delay — a quicker control loop, less time spent formatting and parsing messages,
+          fewer bytes on the wire. That is engineering, not tuning, and it raises the ceiling
+          that everything else is stuck under.</p>
+          <p>Try it now: halve Td on the Bench tab and watch how much more Kp the loop will
+          accept before the phase margin collapses.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ============================================================== AUTO -->
+  <section class="pane" id="pn-auto" role="tabpanel" aria-labelledby="tb-auto">
+    <div class="doc">
+      <p class="doc-lede">Ziegler&ndash;Nichols asks two questions of your machine: <b>how much gain
+      before it oscillates</b> (K<sub>u</sub>) and <b>how fast does it oscillate</b> (T<sub>u</sub>).
+      Both are computed below from your plant constants. Then every published rule is applied and
+      scored, so you can see what each one would actually do <b>before</b> you put it on hardware.</p>
+
+      <div class="card pad" style="margin-bottom:14px">
+        <p class="sec">Ultimate gain and period</p>
+        <div class="metrics" style="gap:0 26px">
+          <div class="met" data-tip="Ultimate gain|The proportional gain at which the loop oscillates with constant amplitude &mdash; neither growing nor decaying. Every ZN formula is a fraction of this.">
+            <dt>K<span class="lc">u</span></dt><dd id="a-ku">&mdash;</dd></div>
+          <div class="met" data-tip="Ultimate period|The period of that oscillation, in seconds. ZN sets the integral and derivative times as fractions of it.">
+            <dt>T<span class="lc">u</span></dt><dd id="a-tu">&mdash;</dd></div>
+          <div class="met" data-tip="Oscillation frequency|Where the loop phase passes &minus;180&deg;. Tu is 2&pi; divided by this.">
+            <dt><span class="lc">&omega;</span>180</dt><dd id="a-w180">&mdash;</dd></div>
+        </div>
+        <p class="tip-note" style="margin-top:10px">These follow from the plant constants on the Bench
+        tab. Change Ka, T<sub>d</sub>, &tau;a or &tau;f and they move.</p>
+      </div>
+
+      <div class="card pad" style="margin-bottom:14px">
+        <p class="sec"><span>What each published rule gives on <em>your</em> plant</span></p>
+        <div style="overflow-x:auto">
+        <table class="dt" id="a-table">
+          <thead><tr>
+            <th>Rule</th><th class="n">Kp</th><th class="n">Ki</th><th class="n">Kd</th>
+            <th class="n">PM</th><th class="n">GM</th><th class="n">Overshoot</th>
+            <th class="n">Settling</th><th class="n">max|z|</th><th>Verdict</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        </div>
+        <p class="tip-note">Click <b>Try</b> to load a rule onto the Bench tab and see it on the plots.</p>
+      </div>
+
+      <div class="cols">
+        <div class="panel">
+          <p class="eyebrow">Read this before using the table</p>
+          <h3>Why classic ZN fails on this machine</h3>
+          <p>Ziegler and Nichols fitted their rules in 1942 to <strong>self-regulating
+          processes</strong> &mdash; a tank, a furnace, a heat exchanger. Give one of those a step
+          and it settles at a new value on its own:</p>
+          <div class="formula">G(s) = K e^(-Ls) / (Ts + 1)     settles by itself</div>
+          <p>Your turntable does not do that. Command a speed and the angle <em>ramps forever</em>.
+          There is a free integrator in the plant:</p>
+          <div class="formula">G(s) = Ka e^(-Td s) / [ s (&tau;a s+1)(&tau;f s+1) ]     never settles</div>
+          <p>That difference is fatal for the classic table. ZN sets the integral time to
+          T<sub>i</sub> = T<sub>u</sub>/2, which puts integral action <strong>right at the crossover
+          frequency</strong>. Add that to the integrator the plant already has, and near crossover
+          you have <strong>two integrators in series &mdash; &minus;180&deg; of phase from the
+          1/s&sup2; alone</strong>, before the dead time has taken anything.</p>
+          <p>The table above will show you the consequence: the classic rule lands a closed-loop
+          pole <em>outside</em> the unit circle.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Measuring it for real</p>
+          <h3>Don't push the gain up &mdash; use a relay</h3>
+          <p>The textbook way to find K<sub>u</sub> is to raise Kp until the machine oscillates. On a
+          motor or belt-driven disc under a camera that means <strong>deliberately destabilising it</strong>,
+          with the swing limited only by your output clamp.</p>
+          <p>There is a safer method that gets the same two numbers. Replace the controller with a
+          <strong>relay</strong>: command a fixed speed one way while the disc is short of target,
+          the other way when it is past. The loop self-oscillates at exactly the frequency you are
+          looking for, and <strong>the amplitude is bounded by the relay size you chose</strong>.</p>
+          <div class="formula">u = +d   when error > +h
+u = &minus;d   when error &lt; &minus;h
+
+T_u = measured period
+K_u = 4d / (&pi; &radic;(a&sup2; &minus; h&sup2;))     a = amplitude of the swing</div>
+          <p>Keep d small, a couple of hundred steps/s, and the swing stays around a degree and
+          never runs away. The hysteresis h keeps encoder flicker from chattering the relay; a few
+          MT6701 counts (about 0.05&deg;) is right.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">Expect this</p>
+          <h3>The relay is approximate, and that is fine</h3>
+          <p>The K<sub>u</sub> formula assumes the swing is a <em>sine wave</em>. Feed a square wave
+          into an integrator and you get a <em>triangle</em>, whose fundamental is 8/&pi;&sup2; =
+          0.81 of the peak &mdash; so K<sub>u</sub> reads about 19% low. The hysteresis adds a second
+          bias, shifting the oscillation to where the phase is &minus;180&deg; + arcsin(h/a) rather
+          than exactly &minus;180&deg;.</p>
+          <p>Simulated on this plant, the relay recovers <strong>T<sub>u</sub> within about 20%</strong>
+          and <strong>K<sub>u</sub> within about 30%</strong>. Bigger relay amplitude reduces both
+          biases, at the cost of a bigger swing.</p>
+          <p><strong>So use the relay to check the model, not to set the gains.</strong> A 30% error
+          in K<sub>u</sub> propagates straight into every ZN formula. But if hardware and this page
+          agree on T<sub>u</sub> to within 20%, the model is describing your real machine &mdash; and
+          then every other number the Bench tab gives you is trustworthy.</p>
+        </div>
+
+        <div class="panel">
+          <p class="eyebrow">The honest recommendation</p>
+          <h3>What to do instead</h3>
+          <p>Run the relay experiment. Compare T<sub>u</sub> against the value at the top of this
+          page. If they agree, <strong>you have validated the model</strong> &mdash; which is worth
+          far more than a gain triple, because it means the crossover, phase margin and dead-time
+          ceiling on the Bench tab all describe your actual hardware.</p>
+          <p>Then tune by loop shaping, not by table. The reason is visible in the table above: the
+          published rules are one-size-fits-all approximations fitted to a plant that is not yours,
+          while loop shaping uses your measured constants directly.</p>
+          <p>If you want an automatic rule that is at least designed for an integrating plant, use
+          <strong>SIMC</strong> rather than ZN &mdash; it is in the table, and it is stable. It will
+          still be more oscillatory than a hand-shaped loop, because it is tuned for disturbance
+          rejection on a process plant rather than for a clean point-to-point move.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  </div><!-- /panes -->
+</div><!-- /app -->
+
+
+<script>
+"use strict";
+/* ==========================================================
+   Complex + polynomial helpers
+   ========================================================== */
+const cx=(re,im)=>({re,im});
+const cadd=(a,b)=>({re:a.re+b.re,im:a.im+b.im});
+const csub=(a,b)=>({re:a.re-b.re,im:a.im-b.im});
+const cmul=(a,b)=>({re:a.re*b.re-a.im*b.im,im:a.re*b.im+a.im*b.re});
+const cdiv=(a,b)=>{const d=b.re*b.re+b.im*b.im;return {re:(a.re*b.re+a.im*b.im)/d,im:(a.im*b.re-a.re*b.im)/d};};
+const cabs=a=>Math.hypot(a.re,a.im);
+const carg=a=>Math.atan2(a.im,a.re);
+
+function pmul(a,b){const r=new Array(a.length+b.length-1).fill(0);
+  for(let i=0;i<a.length;i++)for(let j=0;j<b.length;j++)r[i+j]+=a[i]*b[j];return r;}
+function padd(a,b){const n=Math.max(a.length,b.length),r=new Array(n).fill(0);
+  for(let i=0;i<a.length;i++)r[n-a.length+i]+=a[i];
+  for(let i=0;i<b.length;i++)r[n-b.length+i]+=b[i];return r;}
+function pscale(a,k){return a.map(v=>v*k);}
+function pevalC(c,z){let r=cx(0,0);for(const k of c)r=cadd(cmul(r,z),cx(k,0));return r;}
+
+/* Durand–Kerner: all roots of a real polynomial (descending coefficients) */
+function polyRoots(coeffs){
+  let c=coeffs.slice();
+  while(c.length>1&&Math.abs(c[0])<1e-13)c.shift();
+  const n=c.length-1;
+  if(n<1)return [];
+  const lead=c[0]; c=c.map(v=>v/lead);
+  const roots=[];
+  for(let i=0;i<n;i++){const a=2*Math.PI*i/n+0.4;roots.push(cx(0.8*Math.cos(a),0.8*Math.sin(a)));}
+  for(let it=0;it<400;it++){
+    let mx=0;
+    for(let i=0;i<n;i++){
+      const num=pevalC(c,roots[i]);
+      let den=cx(1,0);
+      for(let j=0;j<n;j++) if(j!==i) den=cmul(den,csub(roots[i],roots[j]));
+      if(cabs(den)<1e-30) continue;
+      const d=cdiv(num,den);
+      roots[i]=csub(roots[i],d);
+      mx=Math.max(mx,cabs(d));
+    }
+    if(mx<1e-12)break;
+  }
+  return roots;
+}
+
+/* ==========================================================
+   Model
+   ========================================================== */
+const T=0.02;                 // CONTROL_INTERVAL = 20 ms in the firmware
+const TF_D=0.08;              // derivative EMA, D_FILTER_ALPHA = 0.2 at 20 ms -> Tf = T(1-a)/a
+const COUNT=360/16384;        // MT6701, 0.022° per count
+const HW={ilim:100};          // integral clamp, deg*s (firmware: integral limited to +/-100)
+const TDEFF=s=>s.Td+T/2;      // dead time plus the half-sample of the zero-order hold
+const CEIL=s=>0.5/TDEFF(s);
+
+/* System presets. Ka is K from sys_p = K/(s+p) in system ID; maxRate is MAX_STEP_RATE. */
+const SYS={
+  nema:{Ka:0.1235,maxRate:3000,note:'Bare NEMA17, 1/16 microstepping. Ka = 0.1235 from System_ID_Nema17_TMC.m (theory 0.1125). Clamp = MAX_STEP_RATE in Nema17_TMC_Combined.ino.'},
+  tt:{Ka:0.028125,maxRate:1000,note:'Turntable, 4:1 belt. Ka = 360/(3200×4) = 0.0281 is theory. Replace it with K from System_ID_Turntable.m once you have run it. Clamp = MAX_STEP_RATE in Turntable_TMC_Combined.ino.'}
+};
+
+const S={Kp:69.8,Ki:61.435,Kd:0.827,zeta:0.7,Ka:0.1235,Td:0.005,tauA:0.005,tauF:0,
+         maxRate:3000,R:130,sys:'nema',hw:false,ramp:false};
+
+/* --- loop frequency response L(jw) = C(jw)G(jw) --- */
+function L(w,s){
+  const jw=cx(0,w);
+  // C(s) = Kp + Ki/s + Kd*s/(1+TF_D*s)
+  let C=cx(s.Kp,0);
+  if(s.Ki>0) C=cadd(C,cdiv(cx(s.Ki,0),jw));
+  if(s.Kd>0) C=cadd(C,cdiv(cmul(cx(s.Kd,0),jw),cx(1,TF_D*w)));
+  // G(s) = Ka e^{-Td s} / (s (tauA s+1)(tauF s+1))
+  let den=cmul(jw,cx(1,w*s.tauA));
+  if(s.tauF>0) den=cmul(den,cx(1,w*s.tauF));
+  let G=cdiv(cx(s.Ka,0),den);
+  const th=-w*TDEFF(s);         // dead time + zero-order-hold half sample
+  G=cmul(G,cx(Math.cos(th),Math.sin(th)));
+  return cmul(C,G);
+}
+
+const W0=0.08,W1=1200,NW=560;
+const WGRID=Array.from({length:NW},(_,i)=>W0*Math.pow(W1/W0,i/(NW-1)));
+
+function bode(s){
+  const mag=[],ph=[];
+  let prev=null,unwrap=0;
+  for(const w of WGRID){
+    const v=L(w,s);
+    mag.push(20*Math.log10(Math.max(cabs(v),1e-12)));
+    let p=carg(v)*180/Math.PI;
+    if(prev!==null){ while(p+unwrap-prev>180)unwrap-=360; while(p+unwrap-prev<-180)unwrap+=360; }
+    p+=unwrap; prev=p; ph.push(p);
+  }
+  return {mag,ph};
+}
+
+/* crossings by linear interpolation on the log-w grid */
+function crossing(ys,target,rising){
+  for(let i=1;i<ys.length;i++){
+    const a=ys[i-1]-target,b=ys[i]-target;
+    if(a===0)return i-1;
+    if((a>0&&b<=0)||(a<0&&b>=0)){
+      const f=a/(a-b);
+      return i-1+f;
+    }
+  }
+  return -1;
+}
+const wAt=idx=>W0*Math.pow(W1/W0,idx/(NW-1));
+const interp=(arr,idx)=>{const i=Math.floor(idx),f=idx-i;
+  return i+1<arr.length?arr[i]*(1-f)+arr[i+1]*f:arr[arr.length-1];};
+
+function margins(b){
+  const ic=crossing(b.mag,0,false);
+  let pm=null,wc=null;
+  if(ic>=0){wc=wAt(ic);pm=180+interp(b.ph,ic);}
+  // phase crossover: first place phase drops through -180 at or after wc
+  let gm=null,w180=null;
+  const start=ic>=0?Math.floor(ic):0;
+  for(let i=Math.max(1,start);i<b.ph.length;i++){
+    if(b.ph[i-1]>-180&&b.ph[i]<=-180){
+      const f=(b.ph[i-1]+180)/(b.ph[i-1]-b.ph[i]);
+      const idx=i-1+f;
+      w180=wAt(idx); gm=-interp(b.mag,idx); break;
+    }
+  }
+  return {pm,wc,gm,w180};
+}
+
+/* --- small dense matrix helpers (n <= 4) --- */
+const eye=n=>{const M=new Float64Array(n*n);for(let i=0;i<n;i++)M[i*n+i]=1;return M;};
+const mmul=(A,B,n)=>{const R=new Float64Array(n*n);
+  for(let i=0;i<n;i++)for(let k=0;k<n;k++){const a=A[i*n+k];if(!a)continue;
+    for(let j=0;j<n;j++)R[i*n+j]+=a*B[k*n+j];}return R;};
+const madd=(A,B)=>{const R=new Float64Array(A.length);
+  for(let i=0;i<A.length;i++)R[i]=A[i]+B[i];return R;};
+const msc=(A,s)=>{const R=new Float64Array(A.length);
+  for(let i=0;i<A.length;i++)R[i]=A[i]*s;return R;};
+const mtr=(A,n)=>{let s=0;for(let i=0;i<n;i++)s+=A[i*n+i];return s;};
+
+/* matrix exponential, scaling and squaring with a Taylor core */
+function expm(A,n){
+  let nrm=0;
+  for(let i=0;i<n;i++){let s=0;for(let j=0;j<n;j++)s+=Math.abs(A[i*n+j]);nrm=Math.max(nrm,s);}
+  const sq=Math.max(0,Math.ceil(Math.log2(nrm+1e-12))+1);
+  const As=msc(A,Math.pow(2,-sq));
+  let R=eye(n),term=eye(n);
+  for(let k=1;k<=30;k++){
+    term=msc(mmul(term,As,n),1/k); R=madd(R,term);
+    let mx=0; for(const v of term) mx=Math.max(mx,Math.abs(v));
+    if(mx<1e-18) break;
+  }
+  for(let i=0;i<sq;i++) R=mmul(R,R,n);
+  return R;
+}
+
+/* continuous plant as state space:  v = actuator rate, th = angle, yf = filtered */
+function plantSS(s){
+  const useF=s.tauF>1e-4, n=useF?3:2;
+  const A=new Float64Array(n*n),B=new Float64Array(n),C=new Float64Array(n);
+  const ta=Math.max(s.tauA,1e-4);
+  A[0]=-1/ta;  B[0]=s.Ka/ta;         // v'  = (Ka*u - v)/tauA
+  A[1*n+0]=1;                        // th' = v
+  if(useF){ A[2*n+1]=1/s.tauF; A[2*n+2]=-1/s.tauF; C[2]=1; }
+  else C[1]=1;
+  return {A,B,C,n};
+}
+
+/* exact zero-order-hold discretisation of the WHOLE plant at once.
+   Discretising each block separately would insert a fictitious hold at every
+   interface and add roughly T/2 of phantom delay per join. */
+function plantTFd(s){
+  const {A,B,C,n}=plantSS(s), m=n+1;
+  const Aug=new Float64Array(m*m);
+  for(let i=0;i<n;i++){
+    for(let j=0;j<n;j++) Aug[i*m+j]=A[i*n+j]*T;
+    Aug[i*m+n]=B[i]*T;
+  }
+  const E=expm(Aug,m);
+  const Ad=new Float64Array(n*n),Bd=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    for(let j=0;j<n;j++) Ad[i*n+j]=E[i*m+j];
+    Bd[i]=E[i*m+n];
+  }
+  // Faddeev-LeVerrier: char poly and adj(zI-Ad) in one pass
+  const c=[1],Ms=[];
+  let Mk=eye(n);
+  for(let k=1;k<=n;k++){
+    if(k>1) Mk=madd(mmul(Ad,Ms[k-2],n),msc(eye(n),c[k-1]));
+    Ms.push(Mk);
+    c.push(-mtr(mmul(Ad,Mk,n),n)/k);
+  }
+  const Ng=[];
+  for(let k=0;k<n;k++){
+    let acc=0;
+    for(let i=0;i<n;i++){
+      if(!C[i]) continue;
+      let r=0; for(let j=0;j<n;j++) r+=Ms[k][i*n+j]*Bd[j];
+      acc+=C[i]*r;
+    }
+    Ng.push(acc);
+  }
+  return {Ng,Dg:c.slice()};      // Ng degree n-1, Dg degree n
+}
+
+/* --- closed-loop poles of the sampled loop --- */
+function poles(s){
+  const d=Math.max(0,Math.round(s.Td/T));
+  const {Ng,Dg}=plantTFd(s);
+  const DgT=pmul(Dg,[1,...new Array(d).fill(0)]);
+  const af=T/(TF_D+T), cc=1-af;
+  const z1=[1,-1], zc=[1,-cc];
+
+  // controller C(z)=Nc/Dc, built so no factor cancels spuriously
+  let Nc,Dc;
+  const kI=s.Ki>0, kD=s.Kd>0;
+  if(!kI&&!kD){ Dc=[1]; Nc=[s.Kp]; }
+  else if(kI&&!kD){ Dc=z1; Nc=padd(pscale(z1,s.Kp),pscale([1,0],s.Ki*T)); }
+  else if(!kI&&kD){ Dc=zc; Nc=padd(pscale(zc,s.Kp),pscale(z1,s.Kd*af/T)); }
+  else{
+    Dc=pmul(z1,zc);
+    Nc=padd(padd(pscale(pmul(z1,zc),s.Kp),pscale(pmul([1,0],zc),s.Ki*T)),
+            pscale(pmul(z1,z1),s.Kd*af/T));
+  }
+  const P=padd(pmul(Dc,DgT),pmul(Nc,Ng));
+  const r=polyRoots(P);
+  let mx=0; for(const q of r) mx=Math.max(mx,cabs(q));
+
+  /* Damping of the dominant poles. z = e^{sT}, so s = (ln|z| + j·arg z)/T and
+     ζ = −Re(s)/|s|. A pole sitting at +0.99 on the real axis has ζ = 1 — slow,
+     but not ringing. Only poles with an ANGLE oscillate. */
+  let zeta=1;
+  for(const q of r){
+    const mag=cabs(q);
+    if(mag<0.5*mx||mag<1e-6) continue;        // ignore the fast/deadbeat ones
+    const lr=Math.log(mag), ar=Math.abs(Math.atan2(q.im,q.re));
+    const den=Math.hypot(lr,ar);
+    const z=den<1e-12?0:Math.max(0,-lr/den);
+    if(z<zeta) zeta=z;
+  }
+  return {roots:r,max:mx,zeta};
+}
+
+/* --- time-domain simulation of the sampled loop --- */
+function simulate(s){
+  const N=Math.round(6/T);
+  const NSUB=20, h=T/NSUB;                 // plant is continuous; controller is not
+  const ta=Math.max(s.tauA,1e-4);
+  const av=Math.exp(-h/ta);
+  const useF=s.tauF>1e-4;
+  const bf=useF?Math.exp(-h/s.tauF):0;
+  const d=Math.max(0,Math.round(s.Td/T));
+  const af=T/(TF_D+T);
+  const R=s.R;
+  let v=0,th=0,yf=0,ePrev=0,integ=0,Df=0;
+  const buf=new Array(d).fill(0);
+  const t=[],y=[],u=[],rr=[];
+  for(let k=0;k<N;k++){
+    const now=k*T;
+    const meas=d>0?buf.shift():yf;         // what the host sees, delay included
+
+    const ref=s.ramp?(now>=5?R:R*now/5):R;
+    const e=ref-meas;
+
+    // Same order as Nema17_TMC_Combined.ino: derivative of the ERROR (prev_error
+    // starts at 0 on START, so the first tick carries a derivative kick), EMA filter,
+    // conditional integration using the old integral, then the clamp.
+    const dRaw=(e-ePrev)/T;
+    Df+=af*(dRaw-Df);
+    const MX=s.hw?s.maxRate:Infinity;
+    const trial=s.Kp*e+s.Ki*integ+s.Kd*Df;
+    const saturating=(trial>=MX&&e>0)||(trial<=-MX&&e<0);
+    if(!saturating){
+      integ+=e*T;
+      if(s.hw) integ=Math.max(-HW.ilim,Math.min(HW.ilim,integ));
+    }
+    let out=s.Kp*e+s.Ki*integ+s.Kd*Df;
+    if(s.hw) out=Math.max(-MX,Math.min(MX,out));
+    ePrev=e;
+    const applied=out;
+
+    // advance the plant one control period, in substeps, holding the command
+    const drive=s.Ka*applied;
+    for(let q=0;q<NSUB;q++){
+      const vn=av*v+(1-av)*drive;
+      th+=drive*h+(v-drive)*ta*(1-av);     // exact integral of the exponential
+      v=vn;
+      let enc=th;
+      if(s.hw) enc=Math.round(enc/COUNT)*COUNT;   // quantise at the encoder
+      yf=useF?bf*yf+(1-bf)*enc:enc;               // then filter, on the ESP32
+    }
+    if(d>0) buf.push(yf);                          // then the USB round trip
+
+    t.push(now); y.push(th); u.push(out); rr.push(ref);
+  }
+  // metrics against the step target
+  const tol=R*0.02;
+  let peak=-Infinity; for(const q of y) if(q>peak)peak=q;
+  const os=Math.max(0,(peak-R)/R*100);
+  let ts=null;
+  const outside=[]; for(let i=0;i<y.length;i++) if(Math.abs(y[i]-R)>tol) outside.push(i);
+  if(outside.length===0) ts=0;
+  else if(outside[outside.length-1]+1<y.length-5) ts=t[outside[outside.length-1]+1];
+  const sse=Math.abs(y[y.length-1]-R);
+  let satFrac=0; if(s.hw){let n=0;for(const q of u) if(Math.abs(q)>=s.maxRate*0.999)n++;satFrac=n/u.length;}
+  return {t,y,u,rr,os,ts,sse,satFrac,peak};
+}
+
+/* ζ → phase-margin target and overshoot */
+const zToPM=z=>z<=0?0:Math.atan(2*z/Math.sqrt(Math.sqrt(1+4*z*z*z*z)-2*z*z))*180/Math.PI;
+const zToOS=z=>z<=0?100:(z>=1?0:100*Math.exp(-Math.PI*z/Math.sqrt(1-z*z)));
+
+/* ==========================================================================
+   STORE + STATE MACHINE
+   One source of truth. Every input dispatches; nothing draws directly.
+   The model is only recomputed when a model field actually changed, so
+   switching tabs or moving the pointer costs nothing.
+   ========================================================================== */
+const MODEL_KEYS=['Kp','Ki','Kd','Ka','Td','tauA','tauF','maxRate','R','hw','ramp'];
+
+const store={
+  ui:{tab:'bench', mode:'idle', drag:null, hoverW:null, hoverPole:-1},
+  derived:null, stale:true, lastChange:null, prev:null
+};
+
+/* the interaction FSM — a pointer is either idle or dragging one handle */
+const FSM={
+  idle:     {GRAB:'dragging'},
+  dragging: {MOVE:'dragging', RELEASE:'idle', CANCEL:'idle'}
+};
+function transition(ev){
+  const next=FSM[store.ui.mode]?.[ev];
+  if(!next) return false;
+  store.ui.mode=next;
+  return true;
+}
+
+function dispatch(action,payload){
+  switch(action){
+    case 'SET':{
+      const {key,value}=payload;
+      if(S[key]===value) return;
+      if(MODEL_KEYS.includes(key)) store.stale=true;
+      S[key]=value; store.lastChange=key;
+      break;
+    }
+    case 'SET_MANY':{
+      let changed=false;
+      for(const [k,v] of Object.entries(payload.values)){
+        if(S[k]!==v){S[k]=v; changed=true; if(MODEL_KEYS.includes(k)) store.stale=true;}
+      }
+      if(!changed) return;
+      store.lastChange=payload.as||null;
+      break;
+    }
+    case 'TAB': store.ui.tab=payload.tab; break;
+    case 'HOVER_W': store.ui.hoverW=payload.w; break;
+    case 'HOVER_POLE': store.ui.hoverPole=payload.i; break;
+    case 'GRAB':
+      if(!transition('GRAB')) return;
+      store.ui.drag=payload; break;
+    case 'RELEASE': case 'CANCEL':
+      if(!transition(action)) return;
+      store.ui.drag=null; break;
+  }
+  render(action);
+}
+
+function derive(){
+  if(!store.stale && store.derived) return store.derived;
+  const b=bode(S);
+  store.derived={b, m:margins(b), p:poles(S), sim:simulate(S)};
+  store.stale=false;
+  return store.derived;
+}
+
+/* ==========================================================================
+   CANVAS PLUMBING
+   ========================================================================== */
+function tok(){
+  const cs=getComputedStyle(document.documentElement);
+  const g=n=>cs.getPropertyValue(n).trim();
+  return {ink:g('--on-surface'),var_:g('--on-surface-var'),dim:g('--on-surface-dim'),
+    line:g('--outline'),soft:g('--outline-soft'),surf:g('--surface'),s1:g('--surface-1'),
+    s2:g('--surface-2'),s3:g('--surface-3'),
+    mag:g('--mag'),ph:g('--ph'),ang:g('--ang'),cmd:g('--cmd'),
+    limit:g('--limit'),guide:g('--guide'),
+    good:g('--good'),caution:g('--caution'),crit:g('--crit'),inv:g('--inverse'),oninv:g('--on-inverse')};
+}
+const MONO='10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+const MONO_B='600 10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+
+function fit(cv){
+  const dpr=window.devicePixelRatio||1;
+  const w=Math.max(cv.clientWidth,120), h=Math.max(cv.clientHeight,110);
+  if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){
+    cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+  }
+  const g=cv.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,w,h);
+  return {g,w,h};
+}
+
+const PAD={l:44,r:12,t:10,b:22};
+const MAG_LO=-60,MAG_HI=60,PH_LO=-290,PH_HI=-20;
+
+function frame(g,w,h,ylo,yhi,tk,ylabel,logx){
+  const pw=w-PAD.l-PAD.r, ph=h-PAD.t-PAD.b;
+  const yp=v=>PAD.t+(yhi-v)/(yhi-ylo)*ph;
+  const xp=logx
+    ? wv=>PAD.l+(Math.log10(wv)-Math.log10(W0))/(Math.log10(W1)-Math.log10(W0))*pw
+    : t =>PAD.l+t/6*pw;
+  g.font=MONO; g.textBaseline='middle';
+  if(logx){
+    for(let d=Math.ceil(Math.log10(W0));d<=Math.floor(Math.log10(W1));d++){
+      for(let mm=1;mm<10;mm++){
+        const wv=mm*Math.pow(10,d); if(wv<W0||wv>W1) continue;
+        const x=xp(wv);
+        g.strokeStyle=mm===1?tk.line:tk.soft; g.lineWidth=1;
+        g.beginPath(); g.moveTo(x,PAD.t); g.lineTo(x,PAD.t+ph); g.stroke();
+        if(mm===1){
+          g.fillStyle=tk.dim; g.textAlign='center';
+          const sup=String(d).replace('-','⁻').replace(/\d/g,c=>'⁰¹²³⁴⁵⁶⁷⁸⁹'[+c]);
+          g.fillText('10'+sup,x,h-PB+13);
+        }
+      }
+    }
+  } else {
+    for(let t=0;t<=6;t++){
+      const x=xp(t); g.strokeStyle=t===0?tk.line:tk.soft; g.lineWidth=1;
+      g.beginPath(); g.moveTo(x,PAD.t); g.lineTo(x,PAD.t+ph); g.stroke();
+      g.fillStyle=tk.dim; g.textAlign='center'; g.fillText(t+'s',x,h-PAD.b+11);
+    }
+  }
+  const span=yhi-ylo;
+  let sy=Math.pow(10,Math.floor(Math.log10(span/4)));
+  [1,2,2.5,5,10].some(k=>{if(span/(sy*k)<=6){sy*=k;return true;}return false;});
+  g.textAlign='right';
+  for(let v=Math.ceil(ylo/sy)*sy;v<=yhi+1e-9;v+=sy){
+    const y=yp(v);
+    g.strokeStyle=tk.soft; g.lineWidth=1;
+    g.beginPath(); g.moveTo(PAD.l,y); g.lineTo(PAD.l+pw,y); g.stroke();
+    g.fillStyle=tk.dim; g.fillText(Math.abs(v)<1e-9?'0':String(+v.toFixed(2)),PAD.l-6,y);
+  }
+  g.strokeStyle=tk.line; g.lineWidth=1; g.strokeRect(PAD.l+.5,PAD.t+.5,pw-1,ph-1);
+  g.save(); g.translate(9,PAD.t+ph/2); g.rotate(-Math.PI/2);
+  g.textAlign='center'; g.fillStyle=tk.dim; g.font=MONO; g.fillText(ylabel,0,0); g.restore();
+  return {pw,ph,xp,yp};
+}
+function clip(g,A){g.save();g.beginPath();g.rect(PAD.l,PAD.t,A.pw,A.ph);g.clip();}
+function line(g,xs,ys,xp,yp,color,width){
+  g.strokeStyle=color; g.lineWidth=width||2; g.lineJoin='round'; g.lineCap='round';
+  g.beginPath(); let on=false;
+  for(let i=0;i<xs.length;i++){
+    const v=ys[i]; if(!isFinite(v)) continue;
+    const X=xp(xs[i]),Y=yp(v);
+    if(!on){g.moveTo(X,Y);on=true;} else g.lineTo(X,Y);
+  }
+  g.stroke();
+}
+function dashed(g,x1,y1,x2,y2,c,pat){
+  g.save(); g.setLineDash(pat||[4,4]); g.strokeStyle=c; g.lineWidth=1.3;
+  g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke(); g.restore();
+}
+function pill(g,x,y,text,fg,bg,align){
+  g.font=MONO_B;
+  const w=g.measureText(text).width+11, h=16;
+  let X = align==='right'? x-w : align==='center'? x-w/2 : x;
+  g.fillStyle=bg; g.strokeStyle=fg; g.lineWidth=1;
+  g.beginPath(); g.roundRect(X,y-h/2,w,h,4); g.fill(); g.stroke();
+  g.fillStyle=fg; g.textAlign='left'; g.textBaseline='middle'; g.fillText(text,X+5.5,y);
+}
+
+/* a grabbable puck: surface-filled with a coloured ring so it stays legible
+   wherever it sits on the trace */
+function puck(g,x,y,color,tk,active,ghost,label){
+  g.save();
+  if(active){ g.globalAlpha=.16; g.fillStyle=color;
+    g.beginPath(); g.arc(x,y,15,0,7); g.fill(); g.globalAlpha=1; }
+  g.beginPath(); g.arc(x,y,active?7.5:6.5,0,7);
+  g.fillStyle=ghost?tk.surf:color; g.fill();
+  g.lineWidth=ghost?1.6:2.4; g.strokeStyle=ghost?color:tk.surf; g.stroke();
+  if(ghost){ g.setLineDash([2,2]); g.lineWidth=1.4; g.strokeStyle=color;
+    g.beginPath(); g.arc(x,y,6.5,0,7); g.stroke(); g.setLineDash([]); }
+  g.restore();
+  if(label){ pill(g,x,y-17,label,color,tk.surf,'center'); }
+}
+
+/* ==========================================================================
+   HANDLES — screen positions recorded each draw for hit-testing
+   ========================================================================== */
+let HANDLES=[];   // {id,cv,x,y,kind}
+
+function solveKpForMag(w,target){
+  const save=S.Kp;
+  const f=k=>{S.Kp=k; return cabs(L(w,S));};
+  let lo=1e-4,hi=1e4;
+  if(f(lo)>target){S.Kp=save;return lo;}
+  if(f(hi)<target){S.Kp=save;return hi;}
+  for(let i=0;i<64;i++){const mid=Math.sqrt(lo*hi); if(f(mid)<target)lo=mid; else hi=mid;}
+  const out=Math.sqrt(lo*hi); S.Kp=save; return out;
+}
+const clampW=w=>Math.min(W1*0.92,Math.max(W0*1.08,w));
+
+/* ==========================================================================
+   DRAW
+   ========================================================================== */
+/* Magnitude and phase are one figure, not two. They share a single frequency
+   axis drawn once at the bottom, so a point on the magnitude curve sits
+   directly above its own phase — which is the whole point of reading them. */
+function drawBode(){
+  const cv=document.getElementById('cv-bode'); const {g,w,h}=fit(cv); const tk=tok();
+  const {b,m}=derive();
+  const drag=store.ui.drag;
+
+  const PB=40;                      // extra room for the shared axis caption
+  const pw=w-PAD.l-PAD.r, total=h-PAD.t-PB, gap=26;
+  const hM=Math.round((total-gap)*0.56), hP=total-gap-hM;
+  const topM=PAD.t, topP=PAD.t+hM+gap;
+  const xp=wv=>PAD.l+(Math.log10(wv)-Math.log10(W0))/(Math.log10(W1)-Math.log10(W0))*pw;
+  const ypM=v=>topM+(MAG_HI-v)/(MAG_HI-MAG_LO)*hM;
+  const ypP=v=>topP+(PH_HI-v)/(PH_HI-PH_LO)*hP;
+
+  g.font=MONO; g.textBaseline='middle';
+  // one shared frequency grid
+  for(let d=Math.ceil(Math.log10(W0));d<=Math.floor(Math.log10(W1));d++){
+    for(let k=1;k<10;k++){
+      const wv=k*Math.pow(10,d); if(wv<W0||wv>W1) continue;
+      const x=xp(wv);
+      g.strokeStyle=k===1?tk.line:tk.soft; g.lineWidth=1;
+      g.beginPath(); g.moveTo(x,topM); g.lineTo(x,topM+hM);
+      g.moveTo(x,topP); g.lineTo(x,topP+hP); g.stroke();
+      if(k===1){
+        g.fillStyle=tk.dim; g.textAlign='center';
+        const sup=String(d).replace('-','⁻').replace(/\d/g,c=>'⁰¹²³⁴⁵⁶⁷⁸⁹'[+c]);
+        g.fillText('10'+sup,x,h-PB+13);
+      }
+    }
+  }
+  g.textAlign='center'; g.fillStyle=tk.dim;
+  g.fillText('frequency  rad/s',PAD.l+pw/2,h-PB+29);
+
+  const yGrid=(ylo,yhi,yp,top,ht,step)=>{
+    g.textAlign='right';
+    for(let v=Math.ceil(ylo/step)*step;v<=yhi+1e-9;v+=step){
+      const y=yp(v); g.strokeStyle=tk.soft; g.lineWidth=1;
+      g.beginPath(); g.moveTo(PAD.l,y); g.lineTo(PAD.l+pw,y); g.stroke();
+      g.fillStyle=tk.dim; g.fillText(String(+v.toFixed(0)),PAD.l-6,y);
+    }
+  };
+  yGrid(MAG_LO,MAG_HI,ypM,topM,hM,20);
+  yGrid(PH_LO,PH_HI,ypP,topP,hP,60);
+
+  const pmT=zToPM(S.zeta), yT=-180+pmT;
+  const wCeil=CEIL(S);
+
+  // ---- magnitude panel ----
+  g.save(); g.beginPath(); g.rect(PAD.l,topM,pw,hM); g.clip();
+  dashed(g,PAD.l,ypM(0),PAD.l+pw,ypM(0),tk.guide,[5,4]);
+  if(wCeil&&wCeil>W0&&wCeil<W1) dashed(g,xp(wCeil),topM,xp(wCeil),topM+hM,tk.limit,[3,4]);
+  line(g,WGRID,b.mag,xp,ypM,tk.mag,2.1);
+  if(m.wc) dashed(g,xp(m.wc),ypM(0),xp(m.wc),topM+hM,tk.mag,[2,3]);
+  if(store.ui.hoverW) dashed(g,xp(store.ui.hoverW),topM,xp(store.ui.hoverW),topM+hM,tk.dim,[2,3]);
+  g.restore();
+
+  // ---- phase panel ----
+  g.save(); g.beginPath(); g.rect(PAD.l,topP,pw,hP); g.clip();
+  dashed(g,PAD.l,ypP(-180),PAD.l+pw,ypP(-180),tk.limit,[5,4]);
+  dashed(g,PAD.l,ypP(yT),PAD.l+pw,ypP(yT),tk.guide,[2,4]);
+  if(wCeil&&wCeil>W0&&wCeil<W1) dashed(g,xp(wCeil),topP,xp(wCeil),topP+hP,tk.limit,[3,4]);
+  line(g,WGRID,b.ph,xp,ypP,tk.ph,2.1);
+  if(m.wc&&m.pm!==null){
+    const x=xp(m.wc),yv=ypP(-180+m.pm),y1=ypP(-180);
+    const col=m.pm<25?tk.crit:(m.pm<45||m.pm>80?tk.caution:tk.good);
+    g.strokeStyle=col; g.lineWidth=3.2; g.lineCap='round';
+    g.beginPath(); g.moveTo(x,yv); g.lineTo(x,y1); g.stroke();
+  }
+  if(store.ui.hoverW) dashed(g,xp(store.ui.hoverW),topP,xp(store.ui.hoverW),topP+hP,tk.dim,[2,3]);
+  g.restore();
+
+  g.strokeStyle=tk.line; g.lineWidth=1;
+  g.strokeRect(PAD.l+.5,topM+.5,pw-1,hM-1);
+  g.strokeRect(PAD.l+.5,topP+.5,pw-1,hP-1);
+  g.save(); g.translate(10,topM+hM/2); g.rotate(-Math.PI/2);
+  g.textAlign='center'; g.fillStyle=tk.mag; g.font=MONO; g.fillText('|L| dB',0,0); g.restore();
+  g.save(); g.translate(10,topP+hP/2); g.rotate(-Math.PI/2);
+  g.textAlign='center'; g.fillStyle=tk.ph; g.fillText('∠L °',0,0); g.restore();
+
+  pill(g,PAD.l+pw-4,ypM(0)-11,'0 dB',tk.guide,tk.surf,'right');
+  pill(g,PAD.l+pw-4,ypP(-180)+11,'−180°',tk.limit,tk.surf,'right');
+  pill(g,PAD.l+5,ypP(yT)-11,'ζ target '+pmT.toFixed(0)+'°',tk.guide,tk.surf,'left');
+  if(wCeil&&wCeil>W0&&wCeil<W1)
+    pill(g,xp(wCeil),topM-1,'ceiling',tk.limit,tk.surf,'center');
+
+  // ---- handles ----
+  HANDLES=[];
+  const onCurve=wv=>{
+    const i=Math.round((Math.log10(wv)-Math.log10(W0))/(Math.log10(W1)-Math.log10(W0))*(NW-1));
+    return b.mag[Math.max(0,Math.min(NW-1,i))];
+  };
+  if(m.wc){
+    const x=xp(m.wc), y=ypM(0);
+    puck(g,x,y,tk.mag,tk,drag?.id==='kp',false,'Kp');
+    HANDLES.push({id:'kp',cv:'bode',x,y});
+  }
+  {
+    const wI=S.Ki>0?S.Ki/S.Kp:Math.max(W0*1.3,(m.wc||1)/8);
+    if(wI>W0&&wI<W1){
+      const x=xp(wI), y=ypM(Math.max(MAG_LO+5,Math.min(MAG_HI-5,onCurve(wI))));
+      puck(g,x,y,tk.ang,tk,drag?.id==='ki',S.Ki===0,S.Ki>0?'Ki':'+I');
+      HANDLES.push({id:'ki',cv:'bode',x,y});
+    }
+  }
+  {
+    const wD=S.Kd>0?S.Kp/S.Kd:Math.min(W1*0.5,(m.wc||1)*6);
+    if(wD>W0&&wD<W1){
+      const x=xp(wD), y=ypM(Math.max(MAG_LO+5,Math.min(MAG_HI-5,onCurve(wD))));
+      puck(g,x,y,tk.ph,tk,drag?.id==='kd',S.Kd===0,S.Kd>0?'Kd':'+D');
+      HANDLES.push({id:'kd',cv:'bode',x,y});
+    }
+  }
+  if(m.wc&&m.pm!==null){
+    const x=xp(m.wc), y=ypP(-180+m.pm);
+    const col=m.pm<25?tk.crit:(m.pm<45||m.pm>80?tk.caution:tk.good);
+    puck(g,x,y,col,tk,drag?.id==='pm',false,'PM '+m.pm.toFixed(0)+'°');
+    HANDLES.push({id:'pm',cv:'bode',x,y});
+  }
+}
+
+/* Angle and command are different quantities with different units, so they get
+   their own panels stacked on a shared time axis rather than a second y-scale
+   crammed into one frame. Two scales in one chart is never readable. */
+function drawStep(){
+  const cv=document.getElementById('cv-step'); const {g,w,h}=fit(cv); const tk=tok();
+  const {sim}=derive();
+
+  const pw=w-PAD.l-PAD.r, total=h-PAD.t-PAD.b, gap=9;
+  const hA=Math.round(total*0.63), hC=total-hA-gap;
+  const topA=PAD.t, topC=PAD.t+hA+gap;
+  const xp=t=>PAD.l+t/6*pw;
+
+  const R=S.R;
+  let ymax=Math.max(R*1.1,...sim.y), ymin=Math.min(0,...sim.y);
+  ymax=Math.min(ymax*1.06,420); ymin=Math.max(ymin*1.06-2,-220);
+  const yp=v=>topA+(ymax-v)/(ymax-ymin)*hA;
+  let um=1; for(const q of sim.u) um=Math.max(um,Math.abs(q));
+  const yu=v=>topC+(um-v)/(2*um)*hC;
+
+  g.font=MONO; g.textBaseline='middle';
+  // shared time grid across both panels
+  for(let t=0;t<=6;t++){
+    const x=xp(t); g.strokeStyle=t===0?tk.line:tk.soft; g.lineWidth=1;
+    g.beginPath(); g.moveTo(x,topA); g.lineTo(x,topA+hA); g.moveTo(x,topC); g.lineTo(x,topC+hC);
+    g.stroke();
+    g.fillStyle=tk.dim; g.textAlign='center'; g.fillText(t+'s',x,h-PAD.b+11);
+  }
+  // angle panel gridlines
+  const span=ymax-ymin;
+  let sy=Math.pow(10,Math.floor(Math.log10(span/3)));
+  [1,2,2.5,5,10].some(k=>{if(span/(sy*k)<=4){sy*=k;return true;}return false;});
+  g.textAlign='right';
+  for(let v=Math.ceil(ymin/sy)*sy;v<=ymax+1e-9;v+=sy){
+    const y=yp(v); g.strokeStyle=tk.soft; g.lineWidth=1;
+    g.beginPath(); g.moveTo(PAD.l,y); g.lineTo(PAD.l+pw,y); g.stroke();
+    g.fillStyle=tk.dim; g.fillText(String(+v.toFixed(0)),PAD.l-6,y);
+  }
+  // command panel: just a zero line
+  g.strokeStyle=tk.soft; g.lineWidth=1;
+  g.beginPath(); g.moveTo(PAD.l,yu(0)); g.lineTo(PAD.l+pw,yu(0)); g.stroke();
+  g.fillStyle=tk.dim; g.textAlign='right';
+  g.fillText('0',PAD.l-6,yu(0));
+  g.fillText(String(Math.round(um)),PAD.l-6,yu(um)+6);
+
+  // angle panel content
+  g.save(); g.beginPath(); g.rect(PAD.l,topA,pw,hA); g.clip();
+  g.fillStyle=tk.guide; g.globalAlpha=.13;
+  g.fillRect(PAD.l,yp(R*1.02),pw,yp(R*0.98)-yp(R*1.02)); g.globalAlpha=1;
+  dashed(g,PAD.l,yp(R),PAD.l+pw,yp(R),tk.guide,[5,4]);
+  line(g,sim.t,sim.rr,xp,yp,tk.guide,1.2);
+  line(g,sim.t,sim.y,xp,yp,tk.ang,2.2);
+  g.restore();
+
+  // command panel content
+  g.save(); g.beginPath(); g.rect(PAD.l,topC,pw,hC); g.clip();
+  if(S.hw){
+    const lim=S.maxRate;
+    if(lim<um){ g.fillStyle=tk.crit; g.globalAlpha=.10;
+      g.fillRect(PAD.l,topC,pw,yu(lim)-topC);
+      g.fillRect(PAD.l,yu(-lim),pw,topC+hC-yu(-lim)); g.globalAlpha=1; }
+  }
+  line(g,sim.t,sim.u,xp,yu,tk.cmd,1.7);
+  g.restore();
+
+  g.strokeStyle=tk.line; g.lineWidth=1;
+  g.strokeRect(PAD.l+.5,topA+.5,pw-1,hA-1);
+  g.strokeRect(PAD.l+.5,topC+.5,pw-1,hC-1);
+  g.save(); g.translate(9,topA+hA/2); g.rotate(-Math.PI/2);
+  g.textAlign='center'; g.fillStyle=tk.dim; g.fillText('angle °',0,0); g.restore();
+  g.save(); g.translate(9,topC+hC/2); g.rotate(-Math.PI/2);
+  g.textAlign='center'; g.fillStyle=tk.cmd; g.fillText('steps/s',0,0); g.restore();
+
+  // direct label on the angle trace — the light-mode contrast relief
+  const last=sim.y[sim.y.length-1];
+  pill(g,PAD.l+pw-4,Math.max(topA+10,Math.min(yp(last),topA+hA-10)),
+       last.toFixed(1)+'°',tk.ang,tk.surf,'right');
+  if(sim.ts!==null&&sim.ts>0&&sim.ts<6){
+    const x=xp(sim.ts);
+    dashed(g,x,topA,x,topA+hA,tk.ang,[2,3]);
+    pill(g,Math.min(x+6,PAD.l+pw-52),topA+hA-11,'ts '+sim.ts.toFixed(2)+'s',tk.ang,tk.surf,'left');
+  }
+  if(sim.os>0.5){
+    const i=sim.y.indexOf(sim.peak);
+    pill(g,xp(sim.t[i]||0),Math.max(topA+9,yp(sim.peak)-13),
+      'Mp '+sim.os.toFixed(1)+'%',sim.os>10?tk.caution:tk.good,tk.surf,'center');
+  }
+}
+
+function drawPZ(){
+  const cv=document.getElementById('cv-pz'); const {g,w,h}=fit(cv); const tk=tok();
+  const {p}=derive();
+  const R=Math.min(w,h)/2-24, cx0=w/2, cy0=h/2;
+  const X=v=>cx0+v*R, Y=v=>cy0-v*R;
+
+  g.fillStyle=tk.crit; g.globalAlpha=.035; g.fillRect(0,0,w,h); g.globalAlpha=1;
+  g.fillStyle=tk.surf; g.beginPath(); g.arc(cx0,cy0,R,0,7); g.fill();
+  g.strokeStyle=tk.soft; g.lineWidth=1;
+  for(const r of [.25,.5,.75]){g.beginPath();g.arc(cx0,cy0,R*r,0,7);g.stroke();}
+  g.beginPath(); g.moveTo(cx0-R-12,cy0); g.lineTo(cx0+R+12,cy0); g.stroke();
+  g.beginPath(); g.moveTo(cx0,cy0-R-12); g.lineTo(cx0,cy0+R+12); g.stroke();
+  g.strokeStyle=p.max>1.0001?tk.crit:tk.line; g.lineWidth=2;
+  g.beginPath(); g.arc(cx0,cy0,R,0,7); g.stroke();
+
+  POLEPTS=[];
+  p.roots.forEach((q,i)=>{
+    const r=cabs(q);
+    const col=r>1.0001?tk.crit:(r>0.97?tk.caution:tk.mag);
+    const x=X(Math.max(-1.3,Math.min(1.3,q.re))), y=Y(Math.max(-1.3,Math.min(1.3,q.im)));
+    POLEPTS.push({x,y,q,r,i});
+    const hot=store.ui.hoverPole===i;
+    if(hot){g.globalAlpha=.18;g.fillStyle=col;g.beginPath();g.arc(x,y,12,0,7);g.fill();g.globalAlpha=1;}
+    g.strokeStyle=col; g.lineWidth=hot?2.8:2.2;
+    g.beginPath(); g.moveTo(x-5,y-5); g.lineTo(x+5,y+5);
+    g.moveTo(x+5,y-5); g.lineTo(x-5,y+5); g.stroke();
+  });
+  const col=p.max>1.0001?tk.crit:(p.zeta<.25?tk.caution:tk.good);
+  g.font=MONO_B; g.fillStyle=col; g.textAlign='left'; g.textBaseline='top';
+  g.fillText('max |z| '+p.max.toFixed(3)+'   ζ '+p.zeta.toFixed(2),9,7);
+}
+let POLEPTS=[];
+
+
+/* ==========================================================================
+   METRIC STRIP
+   ========================================================================== */
+const $=id=>document.getElementById(id);
+const fmt=(v,d,s)=>v===null||v===undefined||!isFinite(v)?'—':v.toFixed(d)+(s||'');
+function setMet(id,text,cls){const e=$(id);e.textContent=text;e.className=cls||'';}
+
+function renderMetrics(){
+  const {m,p,sim}=derive();
+  setMet('m-pm', m.pm===null?'—':fmt(m.pm,0,'°'),
+    m.pm===null?'':(m.pm<25?'crit':(m.pm<45||m.pm>80?'caution':'good')));
+  setMet('m-gm', m.gm===null?'∞':fmt(m.gm,1,' dB'),
+    m.gm===null?'good':(m.gm<4?'crit':(m.gm<6?'caution':'good')));
+  setMet('m-wc', m.wc===null?'—':fmt(m.wc,1,' r/s'),
+    m.wc&&m.wc>CEIL(S)?'crit':'');
+  setMet('m-os', fmt(sim.os,1,'%'), sim.os>25?'crit':(sim.os>10?'caution':'good'));
+  setMet('m-ts', sim.ts===null?'never':fmt(sim.ts,2,' s'), sim.ts===null?'crit':'');
+  setMet('m-z',  p.max>1.0001?'—':fmt(p.zeta,2),
+    p.max>1.0001?'crit':(p.zeta<.25?'crit':(p.zeta<.45?'caution':'good')));
+  setMet('m-pole', fmt(p.max,3), p.max>1.0001?'crit':(p.max>0.999?'caution':''));
+
+  let cls,txt;
+  if(p.max>1.0001||(m.pm!==null&&m.pm<=0)){cls='crit';txt='Unstable';}
+  else if(p.max>0.999||p.zeta<0.25||(m.pm!==null&&m.pm<25)||(m.gm!==null&&m.gm<4)||sim.ts===null){
+    cls='caution';txt='Marginal';}
+  else if(m.pm!==null&&m.pm>80){cls='caution';txt='Sluggish';}
+  else {cls='good';txt='Stable';}
+  $('verdict').className='verdict '+cls;
+  $('verdict-t').textContent=txt;
+}
+
+/* ==========================================================================
+   COACHING
+   ========================================================================== */
+/* The baseline the coaching compares against. A drag fires dozens of updates,
+   so this must NOT advance on every frame or the panel ends up comparing a
+   frame against itself and reporting a change of zero. It advances only once
+   the user has been still for a moment, so the message always describes the
+   whole of the last interaction. */
+function snapshot(){
+  const {m}=derive();
+  return {Kp:S.Kp,Ki:S.Ki,Kd:S.Kd,zeta:S.zeta,Ka:S.Ka,Td:S.Td,tauA:S.tauA,
+          tauF:S.tauF,maxRate:S.maxRate,R:S.R,hw:S.hw,ramp:S.ramp,pm:m.pm,wc:m.wc,gm:m.gm};
+}
+let settleTimer=null;
+function scheduleBaseline(){
+  clearTimeout(settleTimer);
+  settleTimer=setTimeout(()=>{store.prev=snapshot();},450);
+}
+
+function renderCoach(){
+  const {m,p,sim}=derive();
+  const out=[];
+  const o=store.prev, k=store.lastChange;
+  const moved = o && k && (typeof S[k]==='boolean'
+    ? S[k]!==o[k] : Math.abs((S[k]??0)-(o[k]??0))>1e-9);
+
+  if(moved){
+    if(k==='Kp'){
+      const ratio=S.Kp/(o.Kp||1e-9), db=20*Math.log10(Math.max(ratio,1e-9));
+      out.push(`You ${ratio>1?'raised':'lowered'} <b>Kp</b> from ${o.Kp.toFixed(2)} to
+        ${S.Kp.toFixed(2)}. The magnitude curve moved <b>${db>0?'up':'down'} by
+        ${Math.abs(db).toFixed(1)} dB at every frequency</b>, and the phase curve did not move
+        at all. Kp is a pure vertical slide — that is exact, not an approximation.`);
+      if(m.wc&&o.wc) out.push(`Because the curve moved, it crosses 0 dB somewhere new:
+        crossover went ${o.wc.toFixed(1)} → <b>${m.wc.toFixed(1)} rad/s</b>. You are now
+        reading the phase curve at a ${m.wc>o.wc?'higher':'lower'} frequency, so phase margin
+        went ${o.pm===null?'—':o.pm.toFixed(0)+'°'} → <b>${m.pm===null?'—':m.pm.toFixed(0)+'°'}</b>.
+        <b>That is the trade Kp makes: speed for margin.</b>`);
+    }
+    else if(k==='Ki'){
+      out.push(`<b>Ki</b> ${S.Ki>o.Ki?'up':'down'}: ${o.Ki.toFixed(2)} → ${S.Ki.toFixed(2)}.
+        Look at the <b>left end</b> of both plots — that is the only place it lives. Magnitude
+        now climbs without limit as frequency drops, which is what removes a standing error,
+        and phase bends down toward −90° there.`);
+      if(S.Ki>0&&S.Kp>0){
+        const wi=S.Ki/S.Kp, far=wi<(m.wc||1)/3;
+        out.push(`The corner sits at Ki/Kp = <b>${wi.toFixed(2)} rad/s</b>${m.wc?`, against a
+          crossover of ${m.wc.toFixed(1)}`:''}. ${far
+          ?'Comfortably below crossover, so the integrator does its work where it costs you nothing.'
+          :'That is too close to crossover — you are spending phase margin exactly where you cannot afford it. Drag the green puck further left.'}`);
+      }
+    }
+    else if(k==='Kd'){
+      out.push(`<b>Kd</b> ${S.Kd>o.Kd?'up':'down'}: ${o.Kd.toFixed(3)} → ${S.Kd.toFixed(3)}.
+        This one works on the <b>right end</b>. The phase curve lifted near crossover and
+        margin went ${o.pm===null?'—':o.pm.toFixed(0)+'°'} →
+        <b>${m.pm===null?'—':m.pm.toFixed(0)+'°'}</b>. Derivative is the only term that gives
+        margin back.`);
+      if(S.Kd>0) out.push(`Now the bill. Magnitude also lifted at high frequency, which is
+        where encoder noise lives. Your derivative gain tops out at Kd/Tf =
+        <b>${(S.Kd/TF_D).toFixed(0)}</b>; without the filter it would reach
+        ${(S.Kd/T).toFixed(0)}. One encoder count of flicker now produces up to
+        <b>${(S.Kd*COUNT/TF_D).toFixed(2)} steps/s</b> of command.`);
+    }
+    else if(k==='zeta'){
+      out.push(`Target damping <b>ζ = ${S.zeta.toFixed(2)}</b> asks for
+        ${S.zeta>=1?'<b>zero overshoot</b>':'<b>'+zToOS(S.zeta).toFixed(1)+'% overshoot</b>'},
+        which means a phase margin of about <b>${zToPM(S.zeta).toFixed(0)}°</b>. The dotted
+        line on the phase plot moved there — get the orange curve to sit on it at crossover.`);
+      if(S.zeta<0.05) out.push(`ζ = 0 puts that line exactly on −180°: the stability boundary.
+        The loop would ring for ever at constant amplitude. Worth seeing once, never worth building.`);
+      if(S.zeta>0.97) out.push(`ζ = 1 is critically damped — the fastest response that never
+        overshoots at all. Use it when passing the target costs you more than arriving late.`);
+    }
+    else if(k==='Td'){
+      out.push(`Dead time is now <b>${(S.Td*1000).toFixed(0)} ms</b>. Watch what moved: the
+        magnitude curve did <b>not</b> change, but the phase curve pivoted downward. Dead time
+        is pure phase loss — it takes and never gives. With the 10 ms half-sample of the
+        20 ms loop added, your ceiling is now <b>${CEIL(S).toFixed(1)} rad/s</b>.`);
+    }
+    else if(k==='Ka'){
+      out.push(`Ka is now <b>${S.Ka.toFixed(4)} °/s per step/s</b>. It multiplies loop gain
+        exactly like Kp does — halve Ka and double Kp and every curve here would land back
+        where it was. This is a property of your machine, not a tuning choice.`);
+    }
+    else if(k==='tauA'||k==='tauF'){
+      out.push(`${k==='tauA'?'Actuator lag τa':'Encoder filter τf'} is now
+        <b>${(S[k]*1000).toFixed(1)} ms</b>. It bends the magnitude curve steeper above
+        ω = ${(1/Math.max(S[k],1e-6)).toFixed(0)} rad/s and costs phase there. Smoother, slower.`);
+    }
+    else if(k==='maxRate'){
+      out.push(`The step-rate clamp is now <b>${S.maxRate.toFixed(0)} steps/s</b>. It only
+        affects the response with hardware limits on, and the Bode plots never see it. Keep it
+        equal to MAX_STEP_RATE in the .ino you flashed.`);
+    }
+    else if(k==='R'){
+      out.push(`Step size is now <b>${S.R.toFixed(0)}°</b>. A linear loop has exactly the same
+        shape at every size, so with limits off nothing changes except the scale. With limits on, a
+        bigger step pins the command at the clamp for longer, and that is where overshoot grows.`);
+    }
+    else if(k==='hw'){
+      out.push(S.hw
+        ?`Hardware limits are on. The Bode plots did not move — <b>they cannot see any of
+           this.</b> Clamps, deadbands and quantisation are non-linear, and Bode analysis
+           assumes linearity. Only the response changed.`
+        :`Back to the ideal linear model. This is the system the Bode plots actually describe.`);
+    }
+    else if(k==='ramp'){
+      out.push(S.ramp
+        ?`Now ramping the setpoint over 5 s. Gentler on the belt, and much easier to follow —
+           but rise time and overshoot only really mean something for a step.`
+        :`Back to a hard ${S.R.toFixed(0)}° step. Harsh on purpose: it is the input that exposes the machine's
+           own character.`);
+    }
+  }
+  $('coach-msg').innerHTML = out.length
+    ? out.map(t=>`<p class="msg">${t}</p>`).join('')
+    : `<p class="msg">Drag a puck on a plot, or move a slider. This panel explains what it
+       did and why the three plots moved together.</p>`;
+
+  /* standing diagnosis */
+  const notes=[];
+  if(p.max>1.0001) notes.push(['crit','Unstable',
+    `A closed-loop pole sits <b>outside</b> the unit circle at |z| = ${p.max.toFixed(3)}. Every
+     disturbance is multiplied by ${p.max.toFixed(3)} on each tick instead of shrinking.`]);
+  else if(p.max>0.999) notes.push(['caution','On the circle',
+    `|z| = ${p.max.toFixed(4)} — right on the boundary. Neither growing nor decaying.`]);
+  else if(p.zeta<0.25) notes.push(['caution','Barely damped',
+    `Inside the circle, but the dominant poles sit at a steep angle with ζ = ${p.zeta.toFixed(2)}.
+     It will settle, but only after a lot of ringing.`]);
+  else notes.push(['good','Poles healthy',
+    `Furthest pole at |z| = ${p.max.toFixed(3)}, damping ζ = ${p.zeta.toFixed(2)}. Poles on the
+     positive real axis are slow but never ring — only poles with an angle oscillate.`]);
+
+  if(p.max<=1.0001){
+    const gap=p.zeta-S.zeta;
+    notes.push([Math.abs(gap)<0.12?'good':'info',
+      `ζ asked ${S.zeta.toFixed(2)} · got ${p.zeta.toFixed(2)}`,
+      Math.abs(gap)<0.12?'The loop is delivering the damping you asked for.'
+      :gap<0?'Less damped than your target, so expect more overshoot than the table predicts. Lower Kp, or add Kd to lift the phase at crossover.'
+            :'More damped than your target — safe, but you are leaving speed unused. Raise Kp and watch crossover move right.']);
+  }
+  if(m.pm!==null){
+    if(m.pm<25) notes.push(['crit',`Phase margin ${m.pm.toFixed(0)}°`,
+      'Under 25°. Expect heavy overshoot and ringing. Lower Kp, or add Kd to lift phase at crossover.']);
+    else if(m.pm<45) notes.push(['caution',`Phase margin ${m.pm.toFixed(0)}°`,
+      'Below the 45–65° band. Workable, but there is little room left for a stiff belt or a cold bearing.']);
+    else if(m.pm>80) notes.push(['caution',`Phase margin ${m.pm.toFixed(0)}°`,
+      'Very safe, but that much margin means you are giving away speed. Raise Kp.']);
+    else notes.push(['good',`Phase margin ${m.pm.toFixed(0)}°`,'In the 45–65° band. This is the shape you want.']);
+  }
+  /* A pole just inside the circle is a very slow mode. The 6 s response window
+     cannot show it, so settling time looks fine while the machine is still
+     drifting. Surface it explicitly. */
+  if(p.max<1.0001&&p.max>0.995){
+    const tau=-T/Math.log(p.max);
+    if(tau>1.5){
+      const wi=S.Ki>0&&S.Kp>0?S.Ki/S.Kp:null;
+      notes.push(['caution',`Slow mode \u03c4 = ${tau.toFixed(1)} s`,
+        `A pole sits at |z| = ${p.max.toFixed(4)}, which decays with a ${tau.toFixed(1)} second time `+
+        `constant \u2014 <b>longer than the 6 s window below, so the response plot cannot show it.</b> `+
+        (wi!==null
+          ? `It is your integrator: the corner Ki/Kp = ${wi.toFixed(3)} rad/s sits `+
+            `${m.wc?(m.wc/wi).toFixed(0):'many'}\u00d7 below crossover, so integral action takes `+
+            `about ${tau.toFixed(0)} s to do anything. Either raise Ki so it acts within a move, or `+
+            `set it to zero \u2014 this plant already integrates on its own.`
+          : `Settling time is measured over 6 s and will look better than the machine really is.`)]);
+    }
+  }
+  if(m.gm!==null&&m.gm<6) notes.push([m.gm<4?'crit':'caution',`Gain margin ${m.gm.toFixed(1)} dB`,
+    `Under 6 dB, so doubling Kp would take you to or past the edge.`]);
+  if(m.wc&&m.wc>CEIL(S)) notes.push(['crit','Past the delay wall',
+    `Crossover ${m.wc.toFixed(1)} rad/s is beyond the ceiling of ${CEIL(S).toFixed(1)} rad/s.
+     <b>No gain combination fixes this.</b> The cures are a faster loop (shorter CONTROL_INTERVAL) or less delay.`]);
+  if(S.hw&&sim.satFrac>0.15) notes.push(['crit',
+    `Command saturated ${(sim.satFrac*100).toFixed(0)}% of the move`,
+    `While the command is pinned at its limit the loop is effectively open and the gains do
+     nothing. Every number above describes a linear system you are not running.`]);
+  if(S.Ki===0&&S.hw&&sim.sse>0.2) notes.push(['info',`Standing error ${sim.sse.toFixed(2)}°`,
+    'Larger than your ±0.2° requirement, with Ki at zero. This is the situation integral action exists for.']);
+  if(sim.ts===null) notes.push(['crit','Never settles',
+    'The response does not enter and stay inside the ±2% band within 6 s.']);
+
+  $('coach-notes').innerHTML=notes.map(([c,t,b])=>
+    `<li><span class="badge ${c}">${t}</span><span>${b}</span></li>`).join('');
+
+  scheduleBaseline();
+}
+
+/* ==========================================================================
+   RENDER
+   ========================================================================== */
+let rafPending=false;
+/* ==========================================================================
+   AUTO-TUNE TAB
+   Ku and Tu come from the plant itself: at Kp=1 the gain margin IS the factor
+   needed to reach the stability edge, and the -180 crossing gives the period.
+   Every published rule is then applied and scored on this plant, so a bad rule
+   is visible here rather than on the hardware.
+   ========================================================================== */
+function ultimate(){
+  const save={Kp:S.Kp,Ki:S.Ki,Kd:S.Kd};
+  S.Kp=1; S.Ki=0; S.Kd=0;
+  const m=margins(bode(S));
+  Object.assign(S,save);
+  if(m.gm===null||m.w180===null) return null;
+  return {Ku:Math.pow(10,m.gm/20), Tu:2*Math.PI/m.w180, w180:m.w180};
+}
+
+function tuningRules(Ku,Tu){
+  const r=[
+    ['Ziegler–Nichols PID',      0.60*Ku, Tu/2,    Tu/8,     'classic, quarter-amplitude decay'],
+    ['Ziegler–Nichols PI',       0.45*Ku, Tu/1.2,  0,        'classic PI'],
+    ['Pessen integral rule',          0.70*Ku, Tu/2.5,  3*Tu/20,  'more aggressive still'],
+    ['ZN "some overshoot"',           0.33*Ku, Tu/2,    Tu/3,     'detuned variant'],
+    ['ZN "no overshoot"',             0.20*Ku, Tu/2,    Tu/3,     'detuned variant'],
+    ['Tyreus–Luyben PID',        0.45*Ku, 2.2*Tu,  Tu/6.3,   'built for robustness'],
+  ];
+  // SIMC needs the effective delay, not Ku/Tu -- it is the rule actually meant
+  // for an integrating plant, so it is scored alongside for contrast.
+  const theta=TDEFF(S)+S.tauA+S.tauF, tc=1.5*theta;
+  r.push(['SIMC (integrating plant)', 1/(S.Ka*(tc+theta)), 4*(tc+theta), 0,
+          'Skogestad, designed for a plant like yours']);
+  return r.map(([name,Kp,Ti,Td_,note])=>({name,note,Kp,Ki:Ti>0?Kp/Ti:0,Kd:Kp*Td_}));
+}
+
+function scoreGains(Kp,Ki,Kd){
+  const save={Kp:S.Kp,Ki:S.Ki,Kd:S.Kd,hw:S.hw};
+  Object.assign(S,{Kp,Ki,Kd,hw:false});
+  const m=margins(bode(S)), pp=poles(S), sim=simulate(S);
+  Object.assign(S,save);
+  return {pm:m.pm,gm:m.gm,os:sim.os,ts:sim.ts,max:pp.max};
+}
+
+let autoBuilt=false;
+function renderAuto(){
+  const u=ultimate();
+  const fmtU=(v,d,suf)=>v===null||!isFinite(v)?'—':v.toFixed(d)+(suf||'');
+  $('a-ku').textContent   = u?fmtU(u.Ku,1):'—';
+  $('a-tu').textContent   = u?fmtU(u.Tu,3,' s'):'—';
+  $('a-w180').textContent = u?fmtU(u.w180,1,' r/s'):'—';
+  const tb=$('a-table').querySelector('tbody');
+  if(!u){ tb.innerHTML='<tr><td colspan="11">This plant has no −180° crossing, so Ku and Tu do not exist. '
+    +'That happens when the dead time is zero — add some Td on the Bench tab.</td></tr>'; return; }
+  const rows=tuningRules(u.Ku,u.Tu).map(r=>({...r,...scoreGains(r.Kp,r.Ki,r.Kd)}));
+  tb.innerHTML=rows.map((r,i)=>{
+    let cls,verdict;
+    if(r.max>1.0001){cls='crit';verdict='Unstable';}
+    else if(r.pm===null||r.pm<25||r.os>30){cls='crit';verdict='Unusable';}
+    else if(r.pm<45||r.os>10){cls='caution';verdict='Oscillatory';}
+    else {cls='good';verdict='Workable';}
+    return `<tr>
+      <td><b>${r.name}</b><br><span style="color:var(--on-surface-dim);font-size:11.5px">${r.note}</span></td>
+      <td class="n">${r.Kp.toFixed(2)}</td><td class="n">${r.Ki.toFixed(2)}</td><td class="n">${r.Kd.toFixed(3)}</td>
+      <td class="n">${r.pm===null?'—':r.pm.toFixed(0)+'°'}</td>
+      <td class="n">${r.gm===null?'∞':r.gm.toFixed(1)}</td>
+      <td class="n">${r.os.toFixed(0)}%</td>
+      <td class="n">${r.ts===null?'never':r.ts.toFixed(2)+' s'}</td>
+      <td class="n">${r.max.toFixed(3)}</td>
+      <td><span class="badge ${cls}">${verdict}</span></td>
+      <td><button class="chip" data-try="${i}">Try</button></td></tr>`;
+  }).join('');
+  tb.querySelectorAll('[data-try]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const r=rows[+btn.dataset.try];
+      dispatch('SET_MANY',{values:{Kp:+r.Kp.toFixed(4),Ki:+r.Ki.toFixed(4),Kd:+r.Kd.toFixed(5)},as:'Kp'});
+      document.getElementById('tb-bench').click();
+    });
+  });
+}
+
+function render(reason){
+  if(rafPending) return;
+  rafPending=true;
+  requestAnimationFrame(()=>{
+    rafPending=false;
+    syncInputs();
+    if(store.ui.tab==='bench'){
+      renderMetrics(); drawBode(); drawStep(); drawPZ();
+      if(reason!=='HOVER_W'&&reason!=='HOVER_POLE') renderCoach();
+    } else {
+      renderMetrics();
+      if(store.ui.tab==='auto') renderAuto();
+    }
+  });
+}
+
+function syncInputs(){
+  const pairs=[['s-kp','n-kp','Kp',2],['s-ki','n-ki','Ki',2],['s-kd','n-kd','Kd',3],
+    ['s-z','n-z','zeta',2],['s-ka','n-ka','Ka',4],['s-td','n-td','Td',3],
+    ['s-ta','n-ta','tauA',3],['s-tf','n-tf','tauF',3],['s-mx','n-mx','maxRate',0],['s-r','n-r','R',0]];
+  for(const [sl,nu,key,dec] of pairs){
+    const s=$(sl),n=$(nu),v=S[key];
+    if(document.activeElement!==s) s.value=Math.max(+s.min,Math.min(+s.max,v));
+    if(document.activeElement!==n) n.value=(+v).toFixed(dec);
+  }
+  $('z-read').textContent=S.zeta.toFixed(2);
+  $('z-note').textContent = S.zeta<=0.02
+    ? 'Zero damping — the target sits on −180°. It would ring for ever.'
+    : S.zeta>=0.99 ? 'Critically damped — no overshoot at all, and the fastest response that has none.'
+    : `Asks for ${zToOS(S.zeta).toFixed(1)}% overshoot ≈ ${zToPM(S.zeta).toFixed(0)}° of phase margin.`;
+  $('rd-step').textContent=(S.ramp?S.R.toFixed(0)+'° ramp, 5 s':S.R.toFixed(0)+'° step')+(S.hw?' · limits on':'');
+  $('ramp-hs').textContent='Off = a hard '+S.R.toFixed(0)+'° step';
+  document.querySelectorAll('[data-sys]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.sys===S.sys)));
+  $('sys-note').textContent=SYS[S.sys].note;
+  $('c-hw').checked=S.hw; $('c-ramp').checked=S.ramp;
+}
+
+/* ==========================================================================
+   INPUT WIRING
+   ========================================================================== */
+[['s-kp','n-kp','Kp'],['s-ki','n-ki','Ki'],['s-kd','n-kd','Kd'],['s-z','n-z','zeta'],
+ ['s-ka','n-ka','Ka'],['s-td','n-td','Td'],['s-ta','n-ta','tauA'],['s-tf','n-tf','tauF'],
+ ['s-mx','n-mx','maxRate'],['s-r','n-r','R']]
+.forEach(([sl,nu,key])=>{
+  $(sl).addEventListener('input',e=>dispatch('SET',{key,value:+e.target.value}));
+  $(nu).addEventListener('input',e=>{
+    const v=parseFloat(e.target.value); if(isFinite(v)) dispatch('SET',{key,value:v});
+  });
+});
+$('c-hw').addEventListener('change',e=>dispatch('SET',{key:'hw',value:e.target.checked}));
+$('c-ramp').addEventListener('change',e=>dispatch('SET',{key:'ramp',value:e.target.checked}));
+
+document.querySelectorAll('[data-act]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const a=btn.dataset.act;
+    if(a==='p')        dispatch('SET_MANY',{values:{Ki:0,Kd:0},as:'Ki'});
+    else if(a==='pi')  dispatch('SET_MANY',{values:{Ki:Math.max(S.Kp/6,0.1)},as:'Ki'});
+    else if(a==='pid') dispatch('SET_MANY',{values:{Kd:Math.max(S.Kp/14,0.02)},as:'Kd'});
+    else if(a==='best') dispatch('SET_MANY',{values:{Kp:69.8,Ki:61.435,Kd:0.827},as:'Kp'});
+    else {dispatch('SET_MANY',{values:{Kp:10,Ki:0,Kd:0},as:null}); store.prev=snapshot();}
+  });
+});
+
+document.querySelectorAll('[data-sys]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const k=btn.dataset.sys;
+    S.sys=k;
+    dispatch('SET_MANY',{values:{Ka:SYS[k].Ka,maxRate:SYS[k].maxRate},as:'Ka'});
+    render('SYS');
+  });
+});
+
+/* tabs */
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-selected',String(x===t)));
+    document.querySelectorAll('.pane').forEach(p=>p.removeAttribute('data-active'));
+    $('pn-'+t.dataset.tab).setAttribute('data-active','');
+    dispatch('TAB',{tab:t.dataset.tab});
+  });
+  t.addEventListener('keydown',e=>{
+    const tabs=[...document.querySelectorAll('.tab')], i=tabs.indexOf(t);
+    if(e.key==='ArrowRight'){e.preventDefault();tabs[(i+1)%tabs.length].focus();tabs[(i+1)%tabs.length].click();}
+    if(e.key==='ArrowLeft'){e.preventDefault();const j=(i-1+tabs.length)%tabs.length;tabs[j].focus();tabs[j].click();}
+  });
+});
+
+/* ==========================================================================
+   POINTER — hover readouts and handle dragging
+   ========================================================================== */
+function localPos(cv,ev){
+  const r=cv.getBoundingClientRect();
+  return {x:ev.clientX-r.left, y:ev.clientY-r.top, pw:r.width-PAD.l-PAD.r, ph:r.height-PAD.t-PAD.b};
+}
+const xToW=(x,pw)=>W0*Math.pow(W1/W0,(x-PAD.l)/pw);
+
+/* Hold a dragged value inside its slider's range, so the thumb never pins
+   silently while the real number keeps running off past it. */
+function inRange(sliderId,v){
+  const e=$(sliderId);
+  return Math.min(+e.max,Math.max(+e.min,v));
+}
+function applyDrag(id,pos){
+  const w=clampW(xToW(pos.x,pos.pw));
+  if(id==='kp'||id==='pm'){
+    dispatch('SET',{key:'Kp',value:+inRange('s-kp',solveKpForMag(w,1)).toFixed(4)});
+  } else if(id==='ki'){
+    dispatch('SET',{key:'Ki',value:+inRange('s-ki',w*S.Kp).toFixed(4)});
+  } else if(id==='kd'){
+    dispatch('SET',{key:'Kd',value:+inRange('s-kd',S.Kp/w).toFixed(5)});
+  }
+}
+
+(()=>{
+  const cv=$('cv-bode');
+  const nearest=pos=>HANDLES
+    .map(h=>({h,d:Math.hypot(h.x-pos.x,h.y-pos.y)}))
+    .sort((a,b)=>a.d-b.d)[0];
+
+  cv.addEventListener('pointermove',ev=>{
+    const pos=localPos(cv,ev);
+    if(store.ui.mode==='dragging'&&store.ui.drag){ applyDrag(store.ui.drag.id,pos); return; }
+    const n=nearest(pos);
+    cv.style.cursor = n&&n.d<17 ? 'grab' : 'crosshair';
+    if(pos.x>=PAD.l&&pos.x<=PAD.l+pos.pw){
+      const w=xToW(pos.x,pos.pw), v=L(w,S);
+      const db=20*Math.log10(Math.max(cabs(v),1e-12));
+      let ph=carg(v)*180/Math.PI; if(ph>0) ph-=360;
+      $('rd-bode').textContent=`ω ${w.toFixed(2)} rad/s · ${db.toFixed(1)} dB · ${ph.toFixed(0)}°`;
+      dispatch('HOVER_W',{w});
+    }
+  });
+  cv.addEventListener('pointerleave',()=>{
+    if(store.ui.mode==='dragging') return;
+    cv.style.cursor='default';
+    $('rd-bode').textContent='drag any handle to set a gain';
+    dispatch('HOVER_W',{w:null});
+  });
+  cv.addEventListener('pointerdown',ev=>{
+    const pos=localPos(cv,ev), n=nearest(pos);
+    if(!n||n.d>19) return;
+    ev.preventDefault();
+    cv.setPointerCapture(ev.pointerId);
+    cv.style.cursor='grabbing';
+    dispatch('GRAB',{id:n.h.id,cv:'bode'});
+  });
+  const end=ev=>{
+    if(store.ui.mode!=='dragging') return;
+    try{cv.releasePointerCapture(ev.pointerId);}catch(_){}
+    cv.style.cursor='grab';
+    dispatch('RELEASE');
+  };
+  cv.addEventListener('pointerup',end);
+  cv.addEventListener('pointercancel',end);
+})();
+
+/* pole hover */
+$('cv-pz').addEventListener('pointermove',ev=>{
+  const r=$('cv-pz').getBoundingClientRect();
+  const x=ev.clientX-r.left, y=ev.clientY-r.top;
+  let best=-1,bd=1e9;
+  POLEPTS.forEach(p=>{const d=Math.hypot(p.x-x,p.y-y); if(d<bd){bd=d;best=p.i;}});
+  if(bd<14){
+    const p=POLEPTS.find(q=>q.i===best);
+    const lr=Math.log(Math.max(p.r,1e-12)), ar=Math.abs(Math.atan2(p.q.im,p.q.re));
+    const den=Math.hypot(lr,ar);
+    const z=den<1e-12?0:Math.max(0,-lr/den);
+    const tau=p.r>=1?Infinity:-T/lr;
+    $('rd-pz').textContent = p.r<1e-6 ? 'delay pole at the origin — settles in one tick'
+      : `|z| ${p.r.toFixed(3)} · ζ ${z.toFixed(2)} · τ ${isFinite(tau)?(tau*1000).toFixed(0)+' ms':'∞'}`
+        + (ar>0.05?' · oscillates':' · no ringing');
+    dispatch('HOVER_POLE',{i:best});
+  } else {
+    $('rd-pz').textContent='hover a pole';
+    if(store.ui.hoverPole!==-1) dispatch('HOVER_POLE',{i:-1});
+  }
+});
+$('cv-pz').addEventListener('pointerleave',()=>{
+  $('rd-pz').textContent='hover a pole';
+  if(store.ui.hoverPole!==-1) dispatch('HOVER_POLE',{i:-1});
+});
+
+/* ==========================================================================
+   TOOLTIPS
+   ========================================================================== */
+const tipEl=$('tip');
+let tipTimer=null;
+function showTip(el){
+  const raw=el.dataset.tip; if(!raw) return;
+  const [head,...rest]=raw.split('|');
+  tipEl.innerHTML=`<span class="h">${head}</span>${rest.join('|')}`;
+  tipEl.setAttribute('data-show','');
+  const r=el.getBoundingClientRect(), t=tipEl.getBoundingClientRect();
+  let x=r.left+r.width/2-t.width/2;
+  x=Math.max(8,Math.min(x,innerWidth-t.width-8));
+  let y=r.bottom+8;
+  if(y+t.height>innerHeight-8) y=r.top-t.height-8;
+  tipEl.style.left=x+'px'; tipEl.style.top=y+'px';
+}
+function hideTip(){tipEl.removeAttribute('data-show');clearTimeout(tipTimer);}
+document.addEventListener('pointerover',e=>{
+  const el=e.target.closest?.('[data-tip]');
+  if(!el) return;
+  clearTimeout(tipTimer);
+  tipTimer=setTimeout(()=>showTip(el),160);
+});
+document.addEventListener('pointerout',e=>{
+  if(e.target.closest?.('[data-tip]')) hideTip();
+});
+document.addEventListener('focusin',e=>{const el=e.target.closest?.('[data-tip]');if(el)showTip(el);});
+document.addEventListener('focusout',hideTip);
+addEventListener('keydown',e=>{if(e.key==='Escape'){hideTip();if(store.ui.mode==='dragging')dispatch('CANCEL');}});
+addEventListener('scroll',hideTip,true);
+
+/* ==========================================================================
+   BOOT
+   ========================================================================== */
+const ro=new ResizeObserver(()=>{if(store.ui.tab==='bench')render('RESIZE');});
+['cv-bode','cv-step','cv-pz'].forEach(id=>ro.observe($(id).parentElement));
+matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>render('THEME'));
+new MutationObserver(()=>render('THEME'))
+  .observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+store.prev=snapshot();
+render('INIT');
+
+</script>
+</body>
+</html>
