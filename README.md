@@ -80,6 +80,16 @@ Same steps as the bare motor. These files have **not been run on hardware yet**.
 
 **Check against hardware:** with *Include hardware limits* on, the page predicts 2.5% overshoot and a 0.36 s rise for the best gains on a 130° step. The real run gave 2.7% and 436 ms.
 
+**Using pidTuner too:** `sys_p` is a continuous model with no delay, so pidTuner leaves out the 20 ms loop and the encoder delay. As a result it overestimates phase margin (89° vs 78° for the best gains) and suggests gains that are too aggressive. Add the delay before tuning (5 ms encoder + half of the 20 ms loop = 0.015 s):
+
+```matlab
+sys_pd = sys_p;
+sys_pd.InputDelay = 0.015;
+pidTuner(sys_pd)
+```
+
+Then check the gains in the loop-shaping page before running them on hardware. `Hardware_PID_Tuning.m` sends only `C.Kp`, `C.Ki` and `C.Kd`. The firmware's derivative filter is fixed at 0.08 s, so if pidTuner picked a different `C.Tf`, its Kd won't behave the same on hardware.
+
 ### results/nema17_motor/
 These are graphs from the last bare-motor runs. The scripts overwrite them on every run.
 
